@@ -176,6 +176,61 @@ def clear_session_context() -> None:
     _session_context.session_id = None
 
 
+_EVENT_FIELD_ORDER = (
+    "platform",
+    "profile",
+    "session_id",
+    "message_id",
+    "update_id",
+    "message_type",
+    "internal",
+    "turn_id",
+    "api_request_id",
+    "tool_call_id",
+    "attempt",
+    "duration_ms",
+    "status",
+    "outcome",
+    "reason",
+    "error_type",
+    "error_code",
+    "retryable",
+)
+
+
+def _format_event_value(value: object) -> str:
+    """Render one event field as a safe, single-line value."""
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    else:
+        text = str(value)
+    return (
+        text.replace("\\", "\\\\")
+        .replace(" ", "\\s")
+        .replace("\t", "\\t")
+        .replace("\r", "\\r")
+        .replace("\n", "\\n")
+    )
+
+
+def format_event(event: str, **fields: object) -> str:
+    """Format a stable, single-line key/value log event.
+
+    This helper is deliberately pure: it only formats values supplied by the
+    caller. It does not inspect logging/session state, redact secrets, or
+    perform any I/O. Callers must pass already-sanitized, low-cardinality facts.
+    """
+    ordered_names = [name for name in _EVENT_FIELD_ORDER if name in fields]
+    ordered_names.extend(sorted(name for name in fields if name not in _EVENT_FIELD_ORDER))
+    parts = [f"event={_format_event_value(event)}"]
+    parts.extend(
+        f"{name}={_format_event_value(fields[name])}"
+        for name in ordered_names
+        if fields[name] is not None
+    )
+    return " ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Record factory — injects session_tag into every LogRecord at creation
 # ---------------------------------------------------------------------------

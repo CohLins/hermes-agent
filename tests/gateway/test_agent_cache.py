@@ -494,6 +494,20 @@ class TestAgentCacheLifecycle:
         with runner._agent_cache_lock:
             assert session_key not in runner._agent_cache
 
+    def test_evict_emits_cache_event(self, caplog):
+        runner = _make_runner()
+        agent = MagicMock()
+        with runner._agent_cache_lock:
+            runner._agent_cache["session-A"] = (agent, "sig-A")
+
+        import logging
+        with caplog.at_level(logging.INFO, logger="gateway.run"):
+            runner._evict_cached_agent("session-A")
+
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=agent_cache.evicted" in events
+        assert "reason=explicit_invalidation" in events
+
     def test_evict_does_not_affect_other_sessions(self):
         """Evicting one session leaves other sessions cached."""
         runner = _make_runner()

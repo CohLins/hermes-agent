@@ -38,6 +38,21 @@ async def test_safe_disconnect_calls_adapter_disconnect(bare_runner):
 
 
 @pytest.mark.asyncio
+async def test_safe_disconnect_emits_start_and_result_events(bare_runner, caplog):
+    adapter = MagicMock()
+    adapter.disconnect = AsyncMock(return_value=None)
+
+    with caplog.at_level(logging.INFO, logger="gateway.run"):
+        await bare_runner._safe_adapter_disconnect(adapter, Platform.TELEGRAM)
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=platform.disconnect.start" in events
+    assert "platform=telegram" in events
+    assert "event=platform.disconnect.result" in events
+    assert "success=true" in events
+
+
+@pytest.mark.asyncio
 async def test_safe_disconnect_swallows_exceptions(bare_runner):
     """An exception in adapter.disconnect() must not propagate — the
     caller is already on an error path."""

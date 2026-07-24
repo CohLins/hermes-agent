@@ -1147,6 +1147,43 @@ class TestSafeStderr:
             logger.removeHandler(handler)
 
 
+class TestFormatEvent:
+    def test_event_is_first_and_common_fields_have_stable_order(self):
+        message = hermes_logging.format_event(
+            "delivery.succeeded",
+            duration_ms=42,
+            success=True,
+            platform="feishu",
+        )
+
+        assert message == (
+            "event=delivery.succeeded platform=feishu duration_ms=42 success=true"
+        )
+
+    def test_skips_none_and_escapes_whitespace_to_one_line(self):
+        message = hermes_logging.format_event(
+            "compression.summary.result",
+            reason="upstream 404\nnginx\tresponse",
+            error_code=None,
+        )
+
+        assert "error_code=" not in message
+        assert "\n" not in message
+        assert "\t" not in message
+        assert message == (
+            "event=compression.summary.result "
+            "reason=upstream\\s404\\nnginx\\tresponse"
+        )
+
+    def test_does_not_mutate_fields_mapping(self):
+        fields = {"status": "ready", "attempt": 2}
+        original = dict(fields)
+
+        hermes_logging.format_event("platform.connect.result", **fields)
+
+        assert fields == original
+
+
 class TestAsyncQueueLogging:
     """File logging runs through a QueueListener so emits never block on the
     cross-process rotation lock (Windows event-loop-stall fix)."""

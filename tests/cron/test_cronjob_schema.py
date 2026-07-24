@@ -28,6 +28,24 @@ def test_cronjob_schema_schedule_description_flags_required_for_create():
     assert "action=create" in schedule_desc
 
 
+def test_cronjob_schema_uses_relative_duration_for_relative_requests():
+    """Relative requests must stay relative instead of model-calculated ISO."""
+    from tools.cronjob_tools import CRONJOB_SCHEMA
+
+    tool_desc = CRONJOB_SCHEMA["description"]
+    schedule_desc = CRONJOB_SCHEMA["parameters"]["properties"]["schedule"]["description"]
+
+    assert "RELATIVE-TIME RULE" in tool_desc
+    for duration in ("5m", "2h", "3d"):
+        assert f"schedule='{duration}'" in tool_desc
+        assert f"'{duration}'" in schedule_desc
+
+    assert "NEVER calculate" in tool_desc
+    assert "RELATIVE-TIME RULE" in schedule_desc
+    assert "NEVER calculate" in schedule_desc
+    assert "ISO timestamp only" in schedule_desc
+
+
 def test_cronjob_schema_required_array_unchanged():
     """`required[]` stays minimal — `action` only.
 

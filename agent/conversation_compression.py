@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any, Optional, Tuple
 
 from agent.model_metadata import estimate_request_tokens_rough
+from hermes_logging import format_event
 
 logger = logging.getLogger(__name__)
 
@@ -752,6 +753,14 @@ def compress_context(
             # lock API. It is unsafe to proceed without a lock in that case.
             _lock_holder = None
             logger.warning(
+                format_event(
+                    "compression.lock",
+                    outcome="failed",
+                    reason="lookup_error",
+                    error_type=type(_lock_lookup_error).__name__,
+                )
+            )
+            logger.warning(
                 "compression lock lookup raised unexpectedly for session=%s "
                 "(%s: %s) — skipping compression this cycle",
                 _lock_sid, type(_lock_lookup_error).__name__, _lock_lookup_error,
@@ -772,6 +781,13 @@ def compress_context(
                     _lock_sid,
                 )
             _lock_acquired = True  # acquired-but-unlocked compatibility path
+            logger.warning(
+                format_event(
+                    "compression.lock",
+                    outcome="bypassed",
+                    reason="lock_api_unavailable",
+                )
+            )
         else:
             try:
                 _lock_acquired = _try_acquire_lock(
@@ -794,6 +810,14 @@ def compress_context(
                     )
                 _lock_holder = None
                 logger.warning(
+                    format_event(
+                        "compression.lock",
+                        outcome="failed",
+                        reason="acquire_error",
+                        error_type=type(_lock_err).__name__,
+                    )
+                )
+                logger.warning(
                     "compression lock acquisition raised unexpectedly for "
                     "session=%s (%s: %s) — skipping compression this cycle",
                     _lock_sid, type(_lock_err).__name__, _lock_err,
@@ -810,6 +834,13 @@ def compress_context(
                 _lock_sid, existing,
             )
             _lock_holder = None  # don't release a lock we don't own
+            logger.warning(
+                format_event(
+                    "compression.lock",
+                    outcome="blocked",
+                    reason="another_path_active",
+                )
+            )
             # Surface to the user once — quiet for downstream auto-compress loops
             if getattr(agent, "_last_compression_lock_warning_sid", None) != _lock_sid:
                 agent._last_compression_lock_warning_sid = _lock_sid
@@ -826,6 +857,13 @@ def compress_context(
                 _existing_sp = agent._build_system_prompt(system_message)
             return messages, _existing_sp
         if _lock_holder is not None:
+            logger.info(
+                format_event(
+                    "compression.lock",
+                    outcome="acquired",
+                    ttl_seconds=round(_lock_ttl),
+                )
+            )
             _lock_refresher = _CompressionLockLeaseRefresher(
                 _lock_db,
                 _lock_sid,
@@ -1317,6 +1355,20 @@ def compress_context(
         except Exception:
             pass
 
+        logger.info(
+            format_event(
+                "compression.boundary",
+                outcome="completed",
+                messages_before=_pre_msg_count,
+                messages_after=len(compressed),
+                approx_tokens_before=approx_tokens,
+                approx_tokens_after=_compressed_est,
+                made_progress=_compression_made_progress,
+                used_fallback=_compression_used_fallback,
+                in_place=compacted_in_place,
+                rotated=bool(_old_sid),
+            )
+        )
         logger.info(
             "context compression done: session=%s messages=%d->%d rough_tokens=~%s awaiting_real_usage=true",
             agent.session_id or "none", _pre_msg_count, len(compressed),

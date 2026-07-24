@@ -49,6 +49,7 @@ from tools.tool_result_storage import (
     enforce_turn_budget,
 )
 from tools.budget_config import BudgetConfig, DEFAULT_BUDGET, budget_for_context_window
+from hermes_logging import format_event
 
 logger = logging.getLogger(__name__)
 
@@ -539,7 +540,24 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
 
     for tc, name, args, middleware_trace, block_result, blocked_by_guardrail in parsed_calls:
         if block_result is not None:
+            logger.warning(
+                format_event(
+                    "tool.call.blocked",
+                    tool_call_id=getattr(tc, "id", None),
+                    tool_name=name,
+                    dispatch_mode="concurrent",
+                    reason="guardrail" if blocked_by_guardrail else "middleware",
+                )
+            )
             continue
+        logger.info(
+            format_event(
+                "tool.call.start",
+                tool_call_id=getattr(tc, "id", None),
+                tool_name=name,
+                dispatch_mode="concurrent",
+            )
+        )
         if agent.tool_progress_callback:
             try:
                 display_args = _redact_tool_args_for_display(name, args) or args
@@ -639,6 +657,18 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
                 logger.info("tool %s failed (%.2fs): %s", function_name, duration, result[:200])
             else:
                 logger.info("tool %s completed (%.2fs, %d chars)", function_name, duration, len(result))
+            logger.log(
+                logging.WARNING if is_error else logging.INFO,
+                format_event(
+                    "tool.call.failure" if is_error else "tool.call.result",
+                    tool_call_id=getattr(tool_call, "id", None),
+                    tool_name=function_name,
+                    dispatch_mode="concurrent",
+                    duration_ms=round(duration * 1000),
+                    status="error" if is_error else "success",
+                    result_len=len(str(result)),
+                ),
+            )
             results[index] = (function_name, function_args, result, duration, is_error, False, middleware_trace)
         finally:
             # Tear down worker-tid tracking.  Clear any interrupt bit we may
@@ -1170,6 +1200,16 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             except Exception:
                 pass
 
+        if not _execution_blocked:
+            logger.info(
+                format_event(
+                    "tool.call.start",
+                    tool_call_id=getattr(tool_call, "id", None),
+                    tool_name=function_name,
+                    dispatch_mode="sequential",
+                )
+            )
+
         if not _execution_blocked and agent.tool_progress_callback:
             try:
                 display_args = _redact_tool_args_for_display(function_name, function_args) or function_args
@@ -1607,6 +1647,18 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
             logger.warning("Tool %s returned error (%.2fs): %s", function_name, tool_duration, result_preview)
         else:
             logger.info("tool %s completed (%.2fs, %d chars)", function_name, tool_duration, _result_len)
+        logger.log(
+            logging.WARNING if _is_error_result else logging.INFO,
+            format_event(
+                "tool.call.failure" if _is_error_result else "tool.call.result",
+                tool_call_id=getattr(tool_call, "id", None),
+                tool_name=function_name,
+                dispatch_mode="sequential",
+                duration_ms=round(tool_duration * 1000),
+                status="blocked" if _execution_blocked else "error" if _is_error_result else "success",
+                result_len=_result_len,
+            ),
+        )
 
         # Track file-mutation outcome for the turn-end verifier.  See
         # the concurrent path for the rationale; both paths must feed

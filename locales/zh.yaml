@@ -45,6 +45,12 @@ gateway:
     usage_switch_model:     "`/model <name>` — 切换模型"
     usage_switch_provider:  "`/model <name> --provider <slug>` — 切换提供方"
     usage_persist:          "`/model <name> --global` — 永久保存"
+    once_with_global:       "❌ /model --once 不能与 --global 同时使用"
+    once_requires_model:    "❌ /model --once 需要指定模型或提供方。"
+    cost_cancelled:         "🟡 已取消切换模型。当前模型未变（{model}）。"
+    unknown_value:          "未知"
+    cost_warning_title:     "高费用模型警告"
+    cost_warning_message:   "⚠️ **高费用模型警告**\n\n{message}\n\n_文本备用：回复 `{prefix}approve` 切换，或 `{prefix}cancel` 保持当前模型。_"
 
   agents:
     header:                "🤖 **活跃代理与任务**"
@@ -144,6 +150,16 @@ gateway:
     resumed:               "▶ 目标已恢复：{goal}\n发送任意消息继续，或等待 — 我会在下一轮继续推进。"
     invalid:               "无效目标：{error}"
     set:                   "⊙ 目标已设置（{budget} 轮预算）：{goal}\n我将持续工作直到目标完成、你暂停/清除它，或预算耗尽。\n控制命令：/goal status · /goal pause · /goal resume · /goal clear"
+    wait_usage:            "用法：/goal wait <pid> [原因]"
+    wait_pid_int:          "/goal wait：<pid> 必须是整数进程 ID。"
+    wait_error:            "/goal wait：{error}"
+    wait_parked_reason:    "⏳ 目标已挂起于进程 {pid}（{reason}）。循环将暂停直到该进程退出。"
+    wait_parked:           "⏳ 目标已挂起于进程 {pid}。循环将暂停直到该进程退出。"
+    unwait_cleared:        "▶ 等待屏障已清除 — 目标循环恢复。"
+    unwait_none:           "没有设置等待屏障。"
+    draft_usage:           "用法：/goal draft <用自然语言描述的目标>"
+    contract_block:        "\n完成契约：\n{contract}"
+    draft_failed_suffix:   "\n（无法起草契约 — 将作为自由形式目标运行。）"
 
   help:
     header:                "📖 **Hermes 命令**\n"
@@ -330,6 +346,24 @@ Future messages in this room will use that transcript until `/reset` or another 
     bound_status:            "此 topic 已关联到：\n会话：{label}\nID：{session_id}\n\n使用 /new 将此 topic 替换为新会话。\n如需并行工作，请打开 All Messages 并在其中发送消息以创建另一个 topic。"
     thread_ready:            "Telegram 多会话 topics 已启用。\n\n此 topic 将作为独立的 Hermes 会话使用。使用 /new 替换此 topic 的当前会话。如需并行工作，请打开 All Messages 并在其中发送消息以创建另一个 topic。"
     untitled_session:        "未命名会话"
+    no_chat_id:              "无法确定聊天 ID。"
+    disable_not_enabled:     "当前聊天尚未启用多会话 topic 模式。"
+    disable_failed:          "关闭 topic 模式失败：{error}"
+    disabled_ok:             "此聊天的多会话 topic 模式现已关闭。\n\nTelegram 中已有的 topics 不会被删除——它们只是不再作为独立会话被隔离。根 DM 重新作为普通 Hermes 聊天使用。稍后可运行 /topic 重新启用。"
+    root_lobby:              "此主聊天仅用于系统命令。\n\n要开启新的 Hermes 聊天，请打开此 bot 界面顶部的 All Messages topic 并在其中发送任意消息。Telegram 会为该消息创建一个新 topic；每个 topic 都作为独立的 Hermes 会话运行。"
+    root_new:                "要开启一个新的并行 Hermes 聊天，请打开此 bot 界面顶部的 All Messages topic 并在其中发送任意消息。Telegram 会为它创建一个新 topic。\n\n每个 topic 都是独立的 Hermes 会话。只有当您想替换某个 topic 的当前会话时，才在该已有 topic 内使用 /new。"
+    new_header:              "已在此 topic 中开启新的 Hermes 会话。\n\n提示：如需并行工作，请打开 All Messages 并在其中发送消息以创建独立的 topic，而不是在此使用 /new。/new 会替换当前 topic 所关联的会话。"
+    help:                    "/topic — 启用多会话私聊模式（一个 bot，多个并行聊天）\n\n用法：\n  /topic             启用 topic 模式；若已启用则显示状态\n  /topic help        显示本说明\n  /topic off         关闭 topic 模式并清除 topic 绑定\n  /topic <id>        在某个 topic 内：按 ID 恢复以前的会话\n\n工作原理：\n1. 在此私聊中运行一次 /topic——Hermes 会检查 BotFather Threads\n   Settings 是否已启用，并开启多会话模式。\n2. 点击 bot 顶部的 All Messages 并发送任意消息。\n   Telegram 会为该消息创建一个新 topic；每个 topic 都是\n   独立的 Hermes 会话（全新历史、全新上下文）。\n3. 根 DM 变为系统大厅——在此发送 /topic、/status、\n   /help、/usage。普通提示词请在 topic 内发送。\n4. 在某个 topic 内执行 /new 只重置该 topic 的会话。\n5. 在某个 topic 内执行 /topic <id> 可将旧会话恢复到其中。"
+    restore_not_found:       "未找到会话：{id}"
+    restore_not_telegram:    "该会话不是 Telegram 会话，无法恢复到此 topic。"
+    restore_wrong_user:      "该会话不属于此 Telegram 用户。"
+    restore_already_linked:  "该会话已关联到另一个 Telegram topic。"
+    restore_ok:              "会话已恢复：{title}"
+    restore_last_msg:        "\n\nHermes 最后一条消息：\n{message}"
+    root_status_header:      "Telegram 多会话 topics 已启用。\n\n要开启新的 Hermes 聊天，请打开此 bot 界面顶部的 All Messages 并在其中发送任意消息。Telegram 会为它创建一个新 topic。"
+    root_status_prev_header: "以前未关联的会话："
+    root_status_restore_one: "恢复其中一个：\n1. 创建或打开一个 topic。要新建，请打开 All Messages 并在其中发送任意消息。\n2. 在该 topic 内发送 /topic <session-id>。\n示例：在某个 topic 内发送 /topic {example_id}。"
+    root_status_restore_later: "未找到以前未关联的 Telegram 会话。\n\n稍后恢复以前的会话：\n1. 创建或打开一个 topic。要新建，请打开 All Messages 并在其中发送任意消息。\n2. 在该 topic 内发送 /topic <session-id>。"
 
   undo:
     nothing:               "没有可撤销的内容。"
@@ -404,10 +438,187 @@ Future messages in this room will use that transcript until `/reset` or another 
     label_all:             "TTS（对所有消息进行语音回复）"
     help:                  "{toggle}\n\n**/voice 用法**\n• `/voice on` — 当你发送语音消息时用语音回复\n• `/voice tts` — 对*每条*消息都用语音回复\n• `/voice off` — 恢复为纯文本回复\n• `/voice status` — 显示当前模式\n• `/voice`（无参数）— 在开启和关闭之间快速切换{channels}"
     help_channels:         "\n\n**实时语音频道 (Discord)**\n• 先加入一个语音频道，然后 `/voice channel` — 我会加入、聆听并用语音回复\n• `/voice leave` — 断开语音频道"
+    channels_not_supported: "此平台不支持语音频道。"
+    discord_server_only:   "此命令仅在 Discord 服务器中有效。"
+    need_channel_first:    "你需要先加入一个语音频道。"
+    deps_missing:          "缺少语音依赖 (PyNaCl / davey)。安装命令：`{executable} -m pip install PyNaCl`"
+    join_failed_error:     "加入语音频道失败：{error}"
+    joined:                "已加入语音频道 **{channel}**。\n我会用语音回复并聆听你说话。使用 /voice leave 断开连接。"
+    join_failed_perms:     "加入语音频道失败。请检查 bot 权限（Connect + Speak）。"
+    not_in_channel:        "当前不在语音频道中。"
+    left:                  "已离开语音频道。"
 
   yolo:
     disabled:                   "⚠️ 本会话 YOLO 模式 **已关闭** — 危险命令将需要批准。"
     enabled:                    "⚡ 本会话 YOLO 模式 **已开启** — 所有命令自动批准。请谨慎使用。"
+
+  whoami:
+    unrestricted:          "**你** — {platform}（{scope}）\n用户 ID：`{user_id}`\n级别：不受限（此范围未配置管理员名单）\n可用斜杠命令：全部"
+    admin:                 "**你** — {platform}（{scope}）\n用户 ID：`{user_id}`\n级别：**管理员**\n可用斜杠命令：全部"
+    user:                  "**你** — {platform}（{scope}）\n用户 ID：`{user_id}`\n级别：普通用户\n你可运行的斜杠命令：{runnable}"
+    scope_dm:              "私聊"
+    scope_group:           "群组/频道"
+    none:                  "（无）"
+
+  platform:
+    list_header:           "**网关平台**"
+    connected:             "已连接：{names}"
+    connected_none:        "已连接：（无）"
+    pause_reason_default:  "已暂停"
+    pause_reason_manual:   "通过 /platform pause 暂停"
+    list_paused:           "  · {platform} — 已暂停（{reason}）。使用 `/platform resume {platform}` 恢复。"
+    list_retrying:         "  · {platform} — 重试中（第 {attempts} 次）"
+    failed_none:           "失败/暂停：（无）"
+    usage_action:          "用法：/platform {action} <名称>"
+    unknown:               "未知平台：{target}"
+    not_in_queue_pause:    "{platform} 不在重试队列中（要么已连接，要么未启用）。"
+    already_paused:        "{platform} 已处于暂停状态。"
+    paused_ok:             "✓ {platform} 已暂停。使用 `/platform resume {platform}` 恢复，或 `hermes gateway restart` 重置。"
+    not_in_queue_resume:   "{platform} 不在重试队列中 — 无需恢复。"
+    already_retrying:      "{platform} 已在重试中 — 无需恢复。"
+    resumed_ok:            "✓ {platform} 已恢复 — 将在下一个 watcher tick 重试。"
+    usage:                 "用法：/platform <list|pause|resume> [名称]\n  /platform list — 显示平台状态\n  /platform pause <名称> — 停止重试失败的平台\n  /platform resume <名称> — 重新排入暂停的平台"
+
+  subgoal:
+    no_active_goal:        "当前没有活跃的目标。用 /goal <文本> 设置一个。"
+    remove_usage:          "用法：/subgoal remove <n>"
+    remove_int:            "/subgoal remove：<n> 必须是整数（从 1 开始的索引）。"
+    remove_error:          "/subgoal remove：{error}"
+    removed:               "✓ 已移除子目标 {idx}：{text}"
+    clear_error:           "/subgoal clear：{error}"
+    cleared_one:           "✓ 已清除 1 个子目标。"
+    cleared_many:          "✓ 已清除 {count} 个子目标。"
+    clear_none:            "没有可清除的子目标。"
+    add_error:             "/subgoal：{error}"
+    added:                 "✓ 已添加子目标 {idx}：{text}"
+
+  skills:
+    approval_off:          "技能写入审批已关闭（skills.write_approval）。用 /skills approval on 启用，然后在此用 /skills pending 审阅暂存的写入。"
+    unknown_subcommand:    "此平台上未知的 /skills 子命令。可用：pending、approve <id>、reject <id>、diff <id>、approval <on|off>。（搜索/安装仅限 CLI。）"
+
+  bundles:
+    subsystem_unavailable: "技能包子系统不可用：{error}"
+    none_installed:        "未安装任何技能包。\n在主机上创建：\n  `hermes bundles create <name> --skill <s1> --skill <s2>`\n目录：`{dir}`"
+    header:                "**技能包**（已安装 {count} 个）："
+    default_desc:          "加载 {count} 个技能"
+    item:                  "• `/{slug}` — {desc} _（{count} 个技能）_"
+    footer:                "使用 `/<slug>` 调用技能包以加载其全部技能。"
+
+  sessions:
+    search_usage:          "用法：`/sessions search <查询>`"
+
+  codex_runtime:
+    config_load_failed:    "❌ 无法加载配置：{error}"
+
+  # 代理已在运行时发出的回复（_handle_message 中的二级中途派发），
+  # 以及 drain/steer 等共享辅助函数发出的回复。
+  mid_run:
+    queue_usage:           "用法：/queue <提示词>"
+    queued:                "已加入下一轮队列。"
+    queued_n:              "已加入下一轮队列。（队列中 {count} 条）"
+    steer_usage:           "用法：/steer <提示词>"
+    steer_usage_noagent:   "用法：/steer <提示词>（当前没有运行中的代理；将作为普通消息发送）"
+    steer_starting:        "代理仍在启动中——/steer 已加入下一轮队列。"
+    steer_failed:          "⚠️ 转向失败：{error}"
+    steer_queued:          "⏩ 转向已入队——将在下一次工具调用后送达：'{preview}'"
+    steer_rejected:        "转向被拒绝（内容为空）。"
+    steer_no_agent:        "没有运行中的代理——/steer 已加入下一轮队列。"
+    model_busy:            "代理正在运行——请等待或先 /stop，然后再切换模型。"
+    codex_busy:            "代理正在运行——请等待或先 /stop，然后再更改运行时。"
+    goal_busy:             "代理正在运行——可在运行中使用 /goal status / pause / clear / wait，或先 /stop 再设置新目标。"
+    moa_busy:              "代理正在运行——请等待或先 /stop，然后再运行 /moa。"
+    moa_prepare_failed:    "准备 MoA 轮次失败。"
+    command_busy:          "⏳ 代理正在运行——`/{command}` 无法在轮次中途运行。请等待当前回复完成或先 /stop。"
+    force_stopped:         "⚡ 已强制停止。代理仍在启动中——会话已解锁。"
+    hook_blocked:          "命令 `/{command}` 被某个 hook 拦截。"
+    new_confirm_detail:    "这将开启一个全新会话并丢弃当前对话历史。"
+    learn_ack_described:   "正在根据你的描述学习一个技能……"
+    learn_ack_conversation: "正在根据本次对话学习一个技能……"
+    learn_failed:          "无法启动 /learn——请重试。"
+    gerund_restarting:     "重启中"
+    gerund_shutting_down:  "关闭中"
+    drain_queued:          "⏳ 网关{gerund}——已加入下一轮队列，恢复后处理。"
+    drain_busy:            "⏳ 网关正在{gerund}，暂时不接受新的轮次。"
+    drain_busy_new_work:   "⏳ 网关正在{gerund}，暂时不接受新任务。"
+    external_drain:        "⏳ 此代理正在为维护操作排空，暂时不接受新的轮次。稍后就会恢复——请稍候重发。"
+    update_send_failed:    "✗ 向更新进程发送响应失败：{error}"
+    update_sent:           "✓ 已将 `{label}` 发送给更新进程。"
+    skill_installed_disabled: "**{name}** 技能已安装但被禁用。\n启用命令：`hermes skills config`"
+    skill_not_installed:   "**{name}** 技能可用但尚未安装。\n安装命令：`hermes skills install {install_path}`"
+    skill_disabled:        "**{name}** 技能在 {platform} 上已被禁用。\n启用命令：`hermes skills config`"
+    skills_disabled_stacked: "本次堆叠调用中的 **{names}** 技能在 {platform} 上已被禁用。\n启用命令：`hermes skills config`"
+    stacked_load_failed:   "为 /{command} 加载堆叠技能失败。"
+    unknown_command:       "未知命令 `/{command}`。输入 /commands 查看可用命令，或去掉开头的斜杠作为普通消息重新发送。"
+
+  # 绕过代理循环的用户自定义快捷命令（exec/alias）。
+  quick_command:
+    no_output:             "命令没有返回任何输出。"
+    timed_out:             "快捷命令超时（30 秒）。"
+    error:                 "快捷命令出错：{error}"
+    no_command:            "快捷命令 '/{command}' 未定义 command。"
+    no_target:             "快捷命令 '/{command}' 未定义 target。"
+    bad_type:              "快捷命令 '/{command}' 类型不受支持（支持：'exec'、'alias'）。"
+
+  session:
+    active_limit:          "Hermes 已达到活跃会话上限（{active}/{maximum}）。请在其他会话结束后重试。"
+
+  # 非管理员运行仅管理员可用的斜杠命令时的拒绝提示。
+  slash_access:
+    can_run_suffix:        "你可以运行：{commands}。使用 /whoami 查看完整列表。"
+    none_suffix:           "此平台上未对非管理员启用任何斜杠命令。请让管理员将你加入 allow_admin_from，或设置 user_allowed_commands。"
+    admin_only:            "⛔ /{command} 在此仅限管理员使用。{suffix}"
+
+  # 破坏性会话命令（/new、/reset、/undo）的确认提示。
+  slash_confirm:
+    undo_detail_one:       "这将从历史中移除最近一轮用户/助手对话。"
+    undo_detail_n:         "这将从历史中移除最近 {count} 轮用户对话。"
+    cancelled:             "🟡 /{command} 已取消。对话未改变。"
+    always_note:           "\n\nℹ️ 今后 /clear、/new、/reset 和 /undo 将无需确认直接运行。可在 config.yaml 中通过 `approvals.destructive_slash_confirm: true` 重新启用。"
+    prompt:                "⚠️ **确认 /{command}**\n\n{detail}\n\n请选择：\n• **仅批准一次** — 仅本次执行\n• **始终批准** — 执行并永久关闭此提示\n• **取消** — 保留当前对话\n\n_文本回退：回复 `{prefix}approve`、`{prefix}always` 或 `{prefix}cancel`。_"
+
+  suggestions:
+    command_failed:        "建议命令失败：{error}"
+
+  blueprint:
+    command_failed:        "Cron 蓝图命令失败：{error}"
+
+  # 由原始 provider/API 错误映射出的用户安全回复（_gateway_provider_error_reply、
+  # run_sync）。原始 provider 细节仅保留在日志中，不进入聊天。
+  provider_error:
+    auth_failed:           "⚠️ Provider 身份验证失败。请检查所配置的凭据；原始 provider 细节见网关日志。"
+    policy_rejected:       "⚠️ 模型 provider 拒绝了该请求。我未将原始 provider 错误放入聊天；详情请查看网关日志，或尝试换个说法。"
+    rate_limited:          "⏱️ 模型 provider 正在限流。请稍候片刻后重试。"
+    failed_after_retries:  "⚠️ 模型 provider 多次重试后仍失败。我未将原始 provider 细节放入聊天；诊断信息请查看网关日志。"
+    auth_failed_detail:    "⚠️ Provider 身份验证失败：{error}"
+
+  # 当某一轮未产生可用回复时的回退提示（_normalize_empty_agent_response）。
+  session_error:
+    context_too_large:     "⚠️ 会话过大，超出模型的上下文窗口。\n使用 /compact 压缩对话，或使用 /reset 重新开始。"
+    request_failed:        "请求失败：{error}\n请重试，或使用 /reset 开启新会话。"
+    interrupted_before_start: "⚠️ 你的消息在开始处理前被中断（很可能是由于最近的 /stop）。请重新发送。"
+    processing_stopped:    "⚠️ 处理已停止：{error}。请重试。"
+    no_response_generated: "⚠️ 处理已完成但未生成任何回复。这可能是一次瞬时错误——请重新发送你的消息。"
+    not_processed:         "⚠️ 你的消息未被处理（上一轮仍在清理中）。请重新发送。"
+
+  # 追加到通用代理异常回复后的 HTTP 状态提示（_handle_message_with_agent）。
+  # 每条提示以一个前导空格开头，以便拼接在基础句子之后。
+  agent_error:
+    hint_401:              " 请检查你的 API key，或运行 `claude /login` 刷新 OAuth 凭据。"
+    hint_402:              " 你的 API 余额或额度已耗尽。请查看你的 provider 控制台。"
+    hint_usage_limit_reset: " 你的套餐用量已达上限。约 {hours} 小时后重置。"
+    hint_usage_limit:      " 你的套餐用量已达上限。请等待其重置。"
+    hint_rate_limited:     " 你正在被限流。请稍候片刻后重试。"
+    hint_overloaded:       " API 暂时过载。请稍后重试。"
+    hint_rejected:         " 该请求被 API 拒绝。"
+    unexpected:            "抱歉，我遇到了一个意外错误。{status_hint}\n请重试，或使用 /reset 开启新会话。"
+
+  # 远程代理模式的错误（_run_agent_via_proxy）。
+  proxy:
+    requires_aiohttp:      "⚠️ 代理模式需要 aiohttp。安装命令：pip install aiohttp"
+    url_not_configured:    "⚠️ 未配置代理 URL（GATEWAY_PROXY_URL 或 gateway.proxy_url）"
+    error:                 "⚠️ 代理错误（{status}）：{detail}"
+    connection_error:      "⚠️ 代理连接错误：{error}"
+    no_response:           "（远程代理未返回任何回复）"
 
   shared:
     session_db_unavailable:      "会话数据库不可用。"

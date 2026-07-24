@@ -40,6 +40,41 @@ class ImmediateThread:
         self._target()
 
 
+def test_background_review_emits_lifecycle_events(monkeypatch, caplog):
+    class FakeReviewAgent:
+        def __init__(self, **kwargs):
+            self._session_messages = []
+
+        def run_conversation(self, **kwargs):
+            return None
+
+        def shutdown_memory_provider(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(run_agent_module, "AIAgent", FakeReviewAgent)
+    monkeypatch.setattr(run_agent_module.threading, "Thread", ImmediateThread)
+    agent = _bare_agent()
+
+    import logging
+    with caplog.at_level(logging.INFO):
+        AIAgent._spawn_background_review(
+            agent,
+            messages_snapshot=[{"role": "user", "content": "hello"}],
+            review_memory=True,
+        )
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=review.spawned" in events
+    assert "review_memory=true" in events
+    assert "event=review.started" in events
+    assert "message_count=1" in events
+    assert "event=review.completed" in events
+    assert "action_count=0" in events
+
+
 def test_background_review_shuts_down_memory_provider_before_close(monkeypatch):
     events = []
 

@@ -24,6 +24,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from agent.thread_scoped_output import thread_scoped_silence
+from hermes_logging import format_event
 
 logger = logging.getLogger(__name__)
 
@@ -618,6 +619,7 @@ def _run_review_in_thread(
     agent: Any,
     messages_snapshot: List[Dict],
     prompt: str,
+    review_id: str = "",
 ) -> None:
     """Worker function executed in the background-review daemon thread.
 
@@ -626,6 +628,17 @@ def _run_review_in_thread(
     via ``agent._safe_print`` and ``agent.background_review_callback``.
     """
     # Local import to avoid a hard circular dep at module load.
+    logger.info(
+        format_event(
+            "review.started",
+            session_id=getattr(agent, "session_id", None),
+            review_id=review_id or None,
+            provider=getattr(agent, "provider", None),
+            model=getattr(agent, "model", None),
+            message_count=len(messages_snapshot),
+            review_prompt_len=len(prompt),
+        )
+    )
     from run_agent import AIAgent
     from tools.terminal_tool import set_approval_callback as _set_approval_callback
 
@@ -911,6 +924,16 @@ def _run_review_in_thread(
 
         if actions:
             summary = " · ".join(dict.fromkeys(actions))
+            logger.info(
+                format_event(
+                    "review.completed",
+                    session_id=getattr(agent, "session_id", None),
+                    review_id=review_id or None,
+                    action_count=len(actions),
+                    summary_len=len(summary),
+                    callback=bool(agent.background_review_callback),
+                )
+            )
             agent._safe_print(
                 f"  💾 Self-improvement review: {summary}"
             )
@@ -923,7 +946,26 @@ def _run_review_in_thread(
                 except Exception:
                     pass
 
+        else:
+            logger.info(
+                format_event(
+                    "review.completed",
+                    session_id=getattr(agent, "session_id", None),
+                    review_id=review_id or None,
+                    action_count=0,
+                    callback=False,
+                )
+            )
+
     except Exception as e:
+        logger.error(
+            format_event(
+                "review.failed",
+                session_id=getattr(agent, "session_id", None),
+                review_id=review_id or None,
+                error_type=type(e).__name__,
+            )
+        )
         logger.warning("Background memory/skill review failed: %s", e)
         agent._emit_auxiliary_failure("background review", e)
     finally:
@@ -958,6 +1000,7 @@ def spawn_background_review_thread(
     messages_snapshot: List[Dict],
     review_memory: bool = False,
     review_skills: bool = False,
+    review_id: str = "",
 ):
     """Build the review thread target and prompt for a background review.
 
@@ -976,7 +1019,7 @@ def spawn_background_review_thread(
         prompt = getattr(agent, "_SKILL_REVIEW_PROMPT", _SKILL_REVIEW_PROMPT)
 
     def _target() -> None:
-        _run_review_in_thread(agent, messages_snapshot, prompt)
+        _run_review_in_thread(agent, messages_snapshot, prompt, review_id=review_id)
 
     return _target, prompt
 

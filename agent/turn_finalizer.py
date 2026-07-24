@@ -26,6 +26,7 @@ import os
 
 from agent.codex_responses_adapter import _summarize_user_message_for_log
 from agent.message_content import flatten_message_text
+from hermes_logging import format_event
 
 
 def _is_pure_tool_call_tail(msg: dict) -> bool:
@@ -320,7 +321,6 @@ def finalize_turn(
         )
     else:
         logger.info(_diag_msg, *_diag_args)
-
     # File-mutation verifier footer.
     # If one or more ``write_file`` / ``patch`` calls failed during this
     # turn and were never superseded by a successful write to the same
@@ -578,4 +578,22 @@ def finalize_turn(
     except Exception as exc:
         logger.warning("on_session_end hook failed: %s", exc)
 
+    logger.info(
+        format_event(
+            "agent.turn.end",
+            turn_id=turn_id,
+            outcome=(
+                "interrupted" if interrupted else "failed" if failed else
+                "completed" if completed else "incomplete"
+            ),
+            reason=str(_turn_exit_reason).split("(", 1)[0],
+            api_call_count=api_call_count,
+            budget_used=_budget_used,
+            budget_max=_budget_max,
+            tool_turn_count=_turn_tool_count,
+            response_len=len(final_response) if final_response else 0,
+            last_message_role=_last_msg_role,
+            model=agent.model,
+        )
+    )
     return result

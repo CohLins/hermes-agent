@@ -20,6 +20,7 @@ import uuid
 from abc import ABC, abstractmethod
 from urllib.parse import urlsplit
 
+from hermes_logging import format_event
 from utils import normalize_proxy_url
 
 logger = logging.getLogger(__name__)
@@ -2792,12 +2793,26 @@ class BasePlatformAdapter(ABC):
         self._fatal_error_message = None
         self._fatal_error_retryable = True
         self._write_runtime_status_safe("connected", platform_state="connected", error_code=None, error_message=None)
+        logger.info(
+            format_event(
+                "platform.state.changed",
+                platform=_platform_name(self.platform),
+                state="connected",
+            )
+        )
 
     def _mark_disconnected(self) -> None:
         self._running = False
         if self.has_fatal_error:
             return
         self._write_runtime_status_safe("disconnected", platform_state="disconnected", error_code=None, error_message=None)
+        logger.info(
+            format_event(
+                "platform.state.changed",
+                platform=_platform_name(self.platform),
+                state="disconnected",
+            )
+        )
 
     def _set_fatal_error(self, code: str, message: str, *, retryable: bool) -> None:
         self._running = False
@@ -2805,6 +2820,15 @@ class BasePlatformAdapter(ABC):
         self._fatal_error_message = message
         self._fatal_error_retryable = retryable
         self._write_runtime_status_safe("fatal", platform_state="fatal", error_code=code, error_message=message)
+        logger.error(
+            format_event(
+                "platform.fatal",
+                platform=_platform_name(self.platform),
+                state="fatal",
+                error_code=code,
+                retryable=retryable,
+            )
+        )
 
     def _write_runtime_status_safe(self, context: str, **kwargs) -> None:
         """Write runtime status; log first failure per context at warning, rest at debug.
@@ -4265,14 +4289,44 @@ class BasePlatformAdapter(ABC):
         know to retry rather than waiting indefinitely.
         """
 
-        result = await self.send(
-            chat_id=chat_id,
-            content=content,
-            reply_to=reply_to,
-            metadata=metadata,
+        logger.info(
+            format_event(
+                "delivery.attempt",
+                platform=_platform_name(self.platform),
+                attempt=0,
+                content_len=len(content),
+                has_reply_anchor=bool(reply_to),
+            )
         )
+        try:
+            result = await self.send(
+                chat_id=chat_id,
+                content=content,
+                reply_to=reply_to,
+                metadata=metadata,
+            )
+        except Exception as exc:
+            logger.error(
+                format_event(
+                    "delivery.failed",
+                    platform=_platform_name(self.platform),
+                    attempt=0,
+                    status="exception",
+                    error_type=type(exc).__name__,
+                )
+            )
+            raise
 
         if result.success:
+            logger.info(
+                format_event(
+                    "delivery.succeeded",
+                    platform=_platform_name(self.platform),
+                    attempt=0,
+                    content_len=len(content),
+                    continuation_count=len(result.continuation_message_ids or []),
+                )
+            )
             return result
 
         error_str = result.error or ""
@@ -4281,6 +4335,16 @@ class BasePlatformAdapter(ABC):
         # Timeout errors are not safe to retry (message may have been
         # delivered) and not formatting errors — return the failure as-is.
         if not is_network and self._is_timeout_error(error_str):
+            logger.error(
+                format_event(
+                    "delivery.failed",
+                    platform=_platform_name(self.platform),
+                    attempt=0,
+                    status="timeout_ambiguous",
+                    retryable=False,
+                    error_kind=result.error_kind,
+                )
+            )
             return result
 
         if is_network:
@@ -4298,7 +4362,26 @@ class BasePlatformAdapter(ABC):
                     "[%s] Send failed (attempt %d/%d, retrying in %.1fs): %s",
                     self.name, attempt, max_retries, delay, error_str,
                 )
+                logger.warning(
+                    format_event(
+                        "delivery.retry",
+                        platform=_platform_name(self.platform),
+                        attempt=attempt,
+                        retryable=True,
+                        delay_ms=round(delay * 1000),
+                        error_kind=result.error_kind,
+                    )
+                )
                 await asyncio.sleep(delay)
+                logger.info(
+                    format_event(
+                        "delivery.attempt",
+                        platform=_platform_name(self.platform),
+                        attempt=attempt,
+                        content_len=len(content),
+                        has_reply_anchor=bool(reply_to),
+                    )
+                )
                 result = await self.send(
                     chat_id=chat_id,
                     content=content,
@@ -4307,6 +4390,15 @@ class BasePlatformAdapter(ABC):
                 )
                 if result.success:
                     logger.info("[%s] Send succeeded on retry %d", self.name, attempt)
+                    logger.info(
+                        format_event(
+                            "delivery.succeeded",
+                            platform=_platform_name(self.platform),
+                            attempt=attempt,
+                            content_len=len(content),
+                            continuation_count=len(result.continuation_message_ids or []),
+                        )
+                    )
                     return result
                 error_str = result.error or ""
                 if result.retry_after is not None:
@@ -4316,6 +4408,16 @@ class BasePlatformAdapter(ABC):
             else:
                 # All retries exhausted (loop completed without break) — notify user
                 logger.error("[%s] Failed to deliver response after %d retries: %s", self.name, max_retries, error_str)
+                logger.error(
+                    format_event(
+                        "delivery.failed",
+                        platform=_platform_name(self.platform),
+                        attempt=max_retries,
+                        status="retries_exhausted",
+                        retryable=True,
+                        error_kind=result.error_kind,
+                    )
+                )
                 notice = (
                     "\u26a0\ufe0f Message delivery failed after multiple attempts. "
                     "Please try again \u2014 your request was processed but the response could not be sent."
@@ -4328,6 +4430,24 @@ class BasePlatformAdapter(ABC):
 
         # Non-network / post-retry formatting failure: try plain text as fallback
         logger.warning("[%s] Send failed: %s — trying plain-text fallback", self.name, error_str)
+        logger.warning(
+            format_event(
+                "delivery.fallback",
+                platform=_platform_name(self.platform),
+                status="plain_text",
+                error_kind=result.error_kind,
+                retryable=False,
+            )
+        )
+        logger.info(
+            format_event(
+                "delivery.attempt",
+                platform=_platform_name(self.platform),
+                status="plain_text_fallback",
+                content_len=min(len(content), 3500),
+                has_reply_anchor=bool(reply_to),
+            )
+        )
         fallback_result = await self.send(
             chat_id=chat_id,
             content=f"(Response formatting failed, plain text:)\n\n{content[:3500]}",
@@ -4336,6 +4456,25 @@ class BasePlatformAdapter(ABC):
         )
         if not fallback_result.success:
             logger.error("[%s] Fallback send also failed: %s", self.name, fallback_result.error)
+            logger.error(
+                format_event(
+                    "delivery.failed",
+                    platform=_platform_name(self.platform),
+                    status="fallback_failed",
+                    retryable=bool(fallback_result.retryable),
+                    error_kind=fallback_result.error_kind,
+                )
+            )
+        else:
+            logger.info(
+                format_event(
+                    "delivery.succeeded",
+                    platform=_platform_name(self.platform),
+                    status="plain_text_fallback",
+                    content_len=min(len(content), 3500),
+                    continuation_count=len(fallback_result.continuation_message_ids or []),
+                )
+            )
         return fallback_result
 
     @staticmethod
@@ -4987,6 +5126,18 @@ class BasePlatformAdapter(ABC):
         # Track delivery outcomes for the processing-complete hook
         delivery_attempted = False
         delivery_succeeded = False
+        processing_outcome = "unknown"
+        processing_started_at = time.monotonic()
+        logger.info(
+            format_event(
+                "gateway.inbound.dispatched",
+                platform=_platform_name(self.platform),
+                message_id=getattr(event, "message_id", None),
+                update_id=getattr(event, "platform_update_id", None),
+                message_type=getattr(event.message_type, "value", event.message_type),
+                internal=bool(getattr(event, "internal", False)),
+            )
+        )
 
         def _record_delivery(result):
             nonlocal delivery_attempted, delivery_succeeded
@@ -5395,6 +5546,7 @@ class BasePlatformAdapter(ABC):
 
             # Determine overall success for the processing hook
             processing_ok = delivery_succeeded if delivery_attempted else not bool(response)
+            processing_outcome = "success" if processing_ok else "failure"
             await self._run_processing_hook(
                 "on_processing_complete",
                 event,
@@ -5450,9 +5602,11 @@ class BasePlatformAdapter(ABC):
             outcome = ProcessingOutcome.CANCELLED
             if current_task is None or current_task not in self._expected_cancelled_tasks:
                 outcome = ProcessingOutcome.FAILURE
+            processing_outcome = getattr(outcome, "value", str(outcome)).lower()
             await self._run_processing_hook("on_processing_complete", event, outcome)
             raise
         except Exception as e:
+            processing_outcome = "failure"
             await self._run_processing_hook("on_processing_complete", event, ProcessingOutcome.FAILURE)
             logger.error("[%s] Error handling message: %s", self.name, e, exc_info=True)
             # Send the error to the user so they aren't left with radio silence
@@ -5475,6 +5629,17 @@ class BasePlatformAdapter(ABC):
                     self.name, notify_err, exc_info=True,
                 )  # Last resort — don't let error reporting crash the handler
         finally:
+            logger.info(
+                format_event(
+                    "gateway.processing.complete",
+                    platform=_platform_name(self.platform),
+                    message_id=getattr(event, "message_id", None),
+                    duration_ms=round((time.monotonic() - processing_started_at) * 1000),
+                    outcome=processing_outcome,
+                    delivery_attempted=delivery_attempted,
+                    delivery_succeeded=delivery_succeeded,
+                )
+            )
             # Stop typing before any deferred callback work.  Post-delivery
             # callbacks may perform platform I/O; a stuck callback must not
             # leave the typing refresh task running indefinitely.

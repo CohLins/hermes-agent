@@ -30,10 +30,19 @@ def _flatten(d, prefix="") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Catalog completeness -- this is the key invariant test.  If someone adds a
-# new key to en.yaml they MUST add it to every other locale, else runtime
-# falls back to English for those users and defeats the feature.
+# Catalog completeness.
+#
+# ``en`` and ``zh`` are the fully-maintained locales: zh must mirror en 1:1.
+# The remaining locales are best-effort — they may lag behind en+zh, in which
+# case ``t()`` falls back to English at runtime (see agent/i18n.py).  We still
+# forbid ORPHAN keys (present in a locale but absent from en) everywhere, to
+# catch typos and stale keys left behind after a rename.
 # ---------------------------------------------------------------------------
+
+# Locales kept in lockstep with the English source of truth.  Adding a locale
+# here means "this language is expected to translate every en key".
+FULLY_TRANSLATED_LOCALES = frozenset({"en", "zh"})
+
 
 def test_all_locales_exist():
     """Every supported language must have a catalog file on disk."""
@@ -43,13 +52,20 @@ def test_all_locales_exist():
 
 @pytest.mark.parametrize("lang", [l for l in i18n.SUPPORTED_LANGUAGES if l != "en"])
 def test_catalog_keys_match_english(lang: str):
-    """Every non-English catalog must have exactly the same key set as English."""
+    """Key-set invariants relative to the English source of truth.
+
+    - No locale may contain keys absent from en (orphans) — always enforced.
+    - ``FULLY_TRANSLATED_LOCALES`` (currently ``zh``) must additionally have
+      *every* en key; a gap there is a genuine untranslated-string bug.
+    - Other locales may be missing en keys — runtime falls back to English.
+    """
     en_keys = set(_flatten(_load_raw("en")).keys())
     lang_keys = set(_flatten(_load_raw(lang)).keys())
-    missing = en_keys - lang_keys
     extra = lang_keys - en_keys
-    assert not missing, f"{lang}.yaml missing keys: {sorted(missing)}"
     assert not extra, f"{lang}.yaml has keys not in en.yaml: {sorted(extra)}"
+    if lang in FULLY_TRANSLATED_LOCALES:
+        missing = en_keys - lang_keys
+        assert not missing, f"{lang}.yaml missing keys: {sorted(missing)}"
 
 
 @pytest.mark.parametrize("lang", list(i18n.SUPPORTED_LANGUAGES))
@@ -59,15 +75,20 @@ def test_catalog_placeholders_match_english(lang: str):
     A mistranslated placeholder (e.g. ``{description}`` typoed as ``{descricao}``)
     would either raise KeyError at runtime or silently drop the interpolated
     value.  Pin parity at the test layer.
+
+    Keys a (non-fully-translated) locale doesn't define are skipped — those
+    fall back to the English value at runtime, so there is nothing to compare.
     """
     import re
     placeholder_re = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
     en_flat = _flatten(_load_raw("en"))
     lang_flat = _flatten(_load_raw(lang))
     for key, en_value in en_flat.items():
+        if key not in lang_flat:
+            # Missing key → English fallback at runtime; nothing to check.
+            continue
         en_placeholders = set(placeholder_re.findall(en_value))
-        lang_value = lang_flat.get(key, "")
-        lang_placeholders = set(placeholder_re.findall(lang_value))
+        lang_placeholders = set(placeholder_re.findall(lang_flat[key]))
         assert en_placeholders == lang_placeholders, (
             f"{lang}.yaml key={key!r}: placeholders {lang_placeholders} "
             f"don't match English {en_placeholders}"

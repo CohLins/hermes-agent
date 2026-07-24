@@ -34,6 +34,7 @@ from agent.model_metadata import (
 )
 from agent.redact import redact_sensitive_text
 from agent.turn_context import drop_stale_api_content
+from hermes_logging import format_event
 
 logger = logging.getLogger(__name__)
 
@@ -1015,6 +1016,14 @@ class ContextCompressor(ContextEngine):
         self._verify_compaction_cleared_threshold = True
         if used_fallback:
             self._fallback_compression_streak += 1
+            logger.info(
+                format_event(
+                    "compression.breaker",
+                    fallback_streak=self._fallback_compression_streak,
+                    ineffective_count=self._ineffective_compression_count,
+                    reason="deterministic_fallback_completed",
+                )
+            )
             if not self.quiet_mode:
                 logger.warning(
                     "Compaction completed with a deterministic fallback summary. "
@@ -1100,6 +1109,15 @@ class ContextCompressor(ContextEngine):
         self._summary_failure_cooldown_until = time.monotonic() + cooldown_seconds
         self._last_summary_error = error
 
+        logger.warning(
+            format_event(
+                "compression.cooldown",
+                remaining_seconds=round(cooldown_seconds),
+                duration_seconds=round(cooldown_seconds),
+                timeout_streak=getattr(self, "_consecutive_timeout_failures", 0),
+                status="recorded",
+            )
+        )
         session_db = getattr(self, "_session_db", None)
         session_id = getattr(self, "_session_id", "")
         if not session_db or not session_id:
@@ -1619,6 +1637,14 @@ class ContextCompressor(ContextEngine):
         # so it still retries immediately.
         _cooldown_remaining = self._summary_failure_cooldown_until - time.monotonic()
         if _cooldown_remaining > 0:
+            logger.info(
+                format_event(
+                    "compression.cooldown",
+                    remaining_seconds=round(_cooldown_remaining),
+                    timeout_streak=getattr(self, "_consecutive_timeout_failures", 0),
+                    reason="active",
+                )
+            )
             if not self.quiet_mode:
                 logger.debug(
                     "Compression deferred — summary LLM in cooldown for %.0fs more",
@@ -1630,6 +1656,14 @@ class ContextCompressor(ContextEngine):
             self._ineffective_compression_count >= 2
             or self._fallback_compression_streak >= 2
         ):
+            logger.warning(
+                format_event(
+                    "compression.breaker",
+                    ineffective_count=self._ineffective_compression_count,
+                    fallback_streak=self._fallback_compression_streak,
+                    reason="repeated_ineffective_compaction",
+                )
+            )
             if not self.quiet_mode:
                 logger.warning(
                     "Compression skipped — repeated compaction attempts did not "
@@ -2129,6 +2163,15 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         """
         self._summary_model_fallen_back = True
         logger.warning(
+            format_event(
+                "compression.summary.fallback",
+                reason=reason,
+                error_type=type(e).__name__,
+                model=self.summary_model,
+                fallback_model=self.model,
+            )
+        )
+        logger.warning(
             "Summary model '%s' %s (%s). "
             "Falling back to main model '%s' for compression.",
             self.summary_model, reason, e, self.model,
@@ -2165,6 +2208,15 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         """
         now = time.monotonic()
         if now < self._summary_failure_cooldown_until:
+            logger.info(
+                format_event(
+                    "compression.summary.abort",
+                    reason="cooldown",
+                    remaining_seconds=round(
+                        self._summary_failure_cooldown_until - now
+                    ),
+                )
+            )
             logger.debug(
                 "Skipping context summary during cooldown (%.0fs remaining)",
                 self._summary_failure_cooldown_until - now,
@@ -2173,6 +2225,17 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
 
         summary_budget = self._compute_summary_budget(turns_to_summarize)
         content_to_summarize = self._serialize_for_summary(turns_to_summarize)
+        logger.info(
+            format_event(
+                "compression.summary.start",
+                model=self.summary_model or self.model,
+                provider=self.provider or "auto",
+                message_count=len(turns_to_summarize),
+                summary_budget=summary_budget,
+                iterative=bool(self._previous_summary),
+                focused=bool(focus_topic),
+            )
+        )
 
         # Current date for temporal anchoring (see ## Temporal Anchoring below).
         # Date-only granularity matches system_prompt.py:337 (PR #20451) and the
@@ -2414,6 +2477,15 @@ This compaction should PRIORITISE preserving all information related to the focu
             self._last_summary_error = None
             self._last_summary_auth_failure = False
             self._last_summary_network_failure = False
+            logger.info(
+                format_event(
+                    "compression.summary.result",
+                    success=True,
+                    model=self.summary_model or self.model,
+                    provider=self.provider or "auto",
+                    summary_len=len(summary),
+                )
+            )
             return self._with_summary_prefix(summary)
         except Exception as e:
             # ``call_llm`` raises ``RuntimeError`` for two very different cases:
@@ -2434,6 +2506,17 @@ This compaction should PRIORITISE preserving all information related to the focu
                     "no auxiliary LLM provider configured",
                 )
                 self._last_summary_error = "no auxiliary LLM provider configured"
+                logger.warning(
+                    format_event(
+                        "compression.summary.result",
+                        success=False,
+                        model=self.summary_model or self.model,
+                        provider=self.provider or "auto",
+                        error_type=type(e).__name__,
+                        error_code="no_provider",
+                        retryable=False,
+                    )
+                )
                 logger.warning("Context compression: no provider available for "
                                 "summary. Middle turns will be dropped without summary "
                                 "for %d seconds.",
@@ -2575,6 +2658,21 @@ This compaction should PRIORITISE preserving all information related to the focu
             # the auth-failure carve-out; independent of abort_on_summary_failure.
             if _is_streaming_closed:
                 self._last_summary_network_failure = True
+            logger.warning(
+                format_event(
+                    "compression.summary.result",
+                    success=False,
+                    model=self.summary_model or self.model,
+                    provider=self.provider or "auto",
+                    error_type=type(e).__name__,
+                    error_code=_status,
+                    retryable=bool(
+                        _is_timeout
+                        or _is_json_decode
+                        or _is_streaming_closed
+                    ),
+                )
+            )
             logger.warning(
                 "Failed to generate context summary: %s. "
                 "Further summary attempts paused for %d seconds.",

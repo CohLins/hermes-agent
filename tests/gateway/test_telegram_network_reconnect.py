@@ -974,6 +974,28 @@ def test_polling_error_callback_uses_shared_network_classifier():
     assert _calls_shared_network_classifier(callbacks[0])
 
 
+def test_polling_error_callback_does_not_log_exception_text():
+    source = Path(TelegramAdapter.connect.__code__.co_filename).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    callback = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_polling_error_callback"
+    )
+    event_calls = [
+        node
+        for node in ast.walk(callback)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "format_event"
+    ]
+    assert event_calls
+    for call in event_calls:
+        reason = next((kw.value for kw in call.keywords if kw.arg == "reason"), None)
+        assert isinstance(reason, ast.Constant)
+        assert reason.value in {"network_error", "unknown_error"}
+
+
 def test_connect_initialize_retry_uses_shared_network_classifier():
     source = Path(TelegramAdapter.connect.__code__.co_filename).read_text(encoding="utf-8")
     tree = ast.parse(source)

@@ -135,6 +135,26 @@ def _run(
     )
 
 
+def test_turn_completion_emits_stable_event(caplog):
+    agent = _StubAgent(raise_in=())
+
+    with caplog.at_level("INFO", logger="agent.conversation_loop"):
+        result = _run(
+            agent,
+            final_response="final report",
+            api_call_count=2,
+            turn_exit_reason="text_response(finish_reason=stop)",
+        )
+
+    assert result["completed"] is True
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=agent.turn.end" in events
+    assert "turn_id=turn-1" in events
+    assert "api_call_count=2" in events
+    assert "response_len=12" in events
+    assert "outcome=completed" in events
+
+
 def test_all_cleanup_steps_raise_response_still_returned():
     agent = _StubAgent(
         raise_in=("save_trajectory", "cleanup_task_resources", "persist_session")

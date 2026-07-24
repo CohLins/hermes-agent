@@ -131,6 +131,29 @@ async def test_runner_queues_retryable_runtime_fatal_for_reconnection(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_retryable_runtime_fatal_emits_queue_event(monkeypatch, tmp_path, caplog):
+    config = GatewayConfig(
+        platforms={Platform.WHATSAPP: PlatformConfig(enabled=True, token="token")},
+        sessions_dir=tmp_path / "sessions",
+    )
+    runner = GatewayRunner(config)
+    adapter = _RuntimeRetryableAdapter()
+    adapter._set_fatal_error("transport_stale", "transport stale", retryable=True)
+    runner.adapters = {Platform.WHATSAPP: adapter}
+    runner.delivery_router.adapters = runner.adapters
+    runner.stop = AsyncMock()
+
+    with caplog.at_level("INFO", logger="gateway.run"):
+        await runner._handle_adapter_fatal_error(adapter)
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=platform.reconnect.scheduled" in events
+    assert "platform=whatsapp" in events
+    assert "error_code=transport_stale" in events
+    assert "attempt=0" in events
+
+
+@pytest.mark.asyncio
 async def test_retryable_fatal_queues_reconnect_after_cancellation_swallowing_disconnect(
     monkeypatch, tmp_path
 ):

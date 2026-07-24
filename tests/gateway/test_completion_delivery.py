@@ -96,6 +96,26 @@ def _stop_after_sleeps(monkeypatch, runner, count):
     monkeypatch.setattr(asyncio, "sleep", _bounded_sleep)
 
 
+def test_successful_completion_emits_delivery_events(caplog):
+    adapter = SimpleNamespace(handle_message=AsyncMock())
+    runner = _runner(adapter)
+
+    async def _exercise():
+        return await runner._deliver_completion_notification(
+            "completion text", _completion_event(started_at=10.0)
+        )
+
+    import logging
+    with caplog.at_level(logging.INFO, logger="gateway.run"):
+        assert asyncio.run(_exercise()) is True
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=completion.claim.attempt" in events
+    assert "event=completion.claimed" in events
+    assert "completion_type=completion" in events
+    assert "event=completion.injected" in events
+    assert "adapter_accepted=true" in events
+    assert "output_len=15" in events
 def test_duplicate_async_queue_replay_injects_once(monkeypatch, isolated_registry):
     """Byte-identical queue replays produce one turn in one gateway lifecycle."""
     isolated = queue.Queue()

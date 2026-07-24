@@ -74,7 +74,24 @@ def _make_runner():
     return runner
 
 
-# --- Startup queueing ---
+
+def test_adapter_state_transitions_emit_stable_events(caplog):
+    adapter = StubAdapter()
+
+    with caplog.at_level("INFO", logger="gateway.platforms.base"):
+        adapter._mark_connected()
+        adapter._mark_disconnected()
+        adapter._set_fatal_error("network_error", "proxy failed", retryable=True)
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=platform.state.changed" in events
+    assert "state=connected" in events
+    assert "state=disconnected" in events
+    assert "event=platform.fatal" in events
+    assert "error_code=network_error" in events
+    assert "retryable=true" in events
+
+
 
 class TestStartupPlatformIsolation:
     """Verify one blocked platform cannot prevent later platforms from starting."""
@@ -137,6 +154,25 @@ class TestStartupPlatformIsolation:
         assert Platform.FEISHU in runner.adapters
         assert Platform.TELEGRAM not in runner.adapters
         assert runner._create_adapter.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_connect_adapter_emits_start_and_result_events(self, caplog):
+        runner = _make_runner()
+        adapter = StubAdapter()
+
+        with caplog.at_level("INFO", logger="gateway.run"):
+            result = await runner._connect_adapter_with_timeout(
+                adapter, Platform.TELEGRAM, is_reconnect=True
+            )
+
+        assert result is True
+        assert adapter.connect_calls == [True]
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=platform.connect.start" in events
+        assert "platform=telegram" in events
+        assert "reconnect=true" in events
+        assert "event=platform.connect.result" in events
+        assert "success=true" in events
 
     @pytest.mark.asyncio
     async def test_connect_adapter_timeout_raises_retryable_exception(self, monkeypatch):

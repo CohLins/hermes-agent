@@ -62,6 +62,7 @@ from agent.model_metadata import (
 )
 from agent.process_bootstrap import _install_safe_stdio
 from agent.prompt_caching import apply_anthropic_cache_control
+from hermes_logging import format_event
 from agent.retry_utils import (
     adaptive_rate_limit_backoff,
     is_zai_coding_overload_error,
@@ -669,6 +670,18 @@ def run_conversation(
     _should_review_memory = _ctx.should_review_memory
     _plugin_user_context = _ctx.plugin_user_context
     _ext_prefetch_cache = _ctx.ext_prefetch_cache
+    logger.info(
+        format_event(
+            "agent.turn.start",
+            turn_id=turn_id,
+            model=agent.model,
+            provider=agent.provider,
+            api_mode=agent.api_mode,
+            platform=agent.platform or None,
+            history_count=len(conversation_history or []),
+            message_count=len(messages),
+        )
+    )
 
     # Commentary deduplication spans all provider continuations and tool calls
     # within one user turn, but must not suppress the same phrase next turn.
@@ -1270,6 +1283,7 @@ def run_conversation(
                     pass  # Never let rate guard break the agent loop
 
             try:
+                _api_attempt_started_at = time.monotonic()
                 agent._reset_stream_delivery_tracking()
                 # api_messages is built once, before this retry loop, while the
                 # primary provider is active.  A mid-conversation fallback can
@@ -1378,6 +1392,21 @@ def run_conversation(
 
                 if env_var_enabled("HERMES_DUMP_REQUESTS"):
                     agent._dump_api_request_debug(api_kwargs, reason="preflight")
+
+                logger.info(
+                    format_event(
+                        "agent.api.request",
+                        turn_id=turn_id,
+                        api_request_id=api_request_id,
+                        attempt=retry_count + 1,
+                        model=agent.model,
+                        provider=agent.provider,
+                        api_mode=agent.api_mode,
+                        message_count=len(api_messages),
+                        tool_count=len(agent.tools or []),
+                        approx_input_tokens=approx_tokens,
+                    )
+                )
 
                 # Always prefer the streaming path — even without stream
                 # consumers.  Streaming gives us fine-grained health
@@ -1590,13 +1619,33 @@ def run_conversation(
                     # Invalid response — could be rate limiting, provider timeout,
                     # upstream server error, or malformed response.
                     retry_count += 1
-                    
+                    logger.warning(
+                        format_event(
+                            "agent.api.retry",
+                            turn_id=turn_id,
+                            api_request_id=api_request_id,
+                            attempt=retry_count,
+                            reason="invalid_response",
+                            retryable=True,
+                        )
+                    )
+
                     # Eager fallback: empty/malformed responses are a common
                     # rate-limit symptom.  Switch to fallback immediately
                     # rather than retrying with extended backoff.
                     if agent._fallback_index < len(agent._fallback_chain):
                         agent._buffer_status("⚠️ Empty/malformed response — switching to fallback...")
                     if agent._try_activate_fallback():
+                        logger.warning(
+                            format_event(
+                                "agent.fallback.activated",
+                                turn_id=turn_id,
+                                api_request_id=api_request_id,
+                                reason="invalid_response",
+                                model=agent.model,
+                                provider=agent.provider,
+                            )
+                        )
                         active_system_prompt = _sync_failover_system_message(
                             agent, api_messages, active_system_prompt)
                         retry_count = 0
@@ -1774,6 +1823,39 @@ def run_conversation(
                         )
                         finish_reason = "length"
 
+                _usage_obj = getattr(response, "usage", None) if response else None
+                _usage_prompt = None
+                _usage_completion = None
+                _usage_total = None
+                if _usage_obj:
+                    try:
+                        _event_usage = normalize_usage(
+                            _usage_obj,
+                            provider=agent.provider,
+                            api_mode=agent.api_mode,
+                        )
+                        _usage_prompt = _event_usage.prompt_tokens
+                        _usage_completion = _event_usage.output_tokens
+                        _usage_total = _event_usage.total_tokens
+                    except Exception:
+                        pass
+                logger.info(
+                    format_event(
+                        "agent.api.result",
+                        turn_id=turn_id,
+                        api_request_id=api_request_id,
+                        attempt=retry_count + 1,
+                        duration_ms=round((time.monotonic() - _api_attempt_started_at) * 1000),
+                        status="valid",
+                        finish_reason=finish_reason,
+                        model=getattr(response, "model", None) or agent.model,
+                        provider=agent.provider,
+                        prompt_tokens=_usage_prompt,
+                        completion_tokens=_usage_completion,
+                        total_tokens=_usage_total,
+                    )
+                )
+
                 # ── Content-policy refusal (HTTP 200) ──────────────────
                 # The model — or the provider's safety system — returned a
                 # *successful* response whose stop/finish reason is a refusal:
@@ -1832,6 +1914,16 @@ def run_conversation(
                             "⚠️ Model declined to respond (safety refusal) — trying fallback..."
                         )
                     if agent._try_activate_fallback():
+                        logger.warning(
+                            format_event(
+                                "agent.fallback.activated",
+                                turn_id=turn_id,
+                                api_request_id=api_request_id,
+                                reason="content_policy_blocked",
+                                model=agent.model,
+                                provider=agent.provider,
+                            )
+                        )
                         active_system_prompt = _sync_failover_system_message(
                             agent, api_messages, active_system_prompt)
                         retry_count = 0
@@ -2755,6 +2847,22 @@ def run_conversation(
                     classified.retryable, classified.should_compress,
                     classified.should_rotate_credential, classified.should_fallback,
                 )
+                logger.warning(
+                    format_event(
+                        "agent.api.failure",
+                        turn_id=turn_id,
+                        api_request_id=api_request_id,
+                        attempt=retry_count + 1,
+                        duration_ms=round((time.monotonic() - _api_attempt_started_at) * 1000),
+                        model=agent.model,
+                        provider=agent.provider,
+                        api_mode=agent.api_mode,
+                        error_type=type(api_error).__name__,
+                        error_code=status_code,
+                        retryable=classified.retryable,
+                        reason=classified.reason.value,
+                    )
+                )
                 agent._invoke_api_request_error_hook(
                     task_id=effective_task_id,
                     turn_id=turn_id,
@@ -3118,6 +3226,18 @@ def run_conversation(
                     )
 
                 retry_count += 1
+                logger.warning(
+                    format_event(
+                        "agent.api.retry",
+                        turn_id=turn_id,
+                        api_request_id=api_request_id,
+                        attempt=retry_count,
+                        reason=classified.reason.value,
+                        retryable=classified.retryable,
+                        error_type=type(api_error).__name__,
+                        error_code=status_code,
+                    )
+                )
                 elapsed_time = time.time() - api_start_time
                 agent._touch_activity(
                     f"API error recovery (attempt {retry_count}/{max_retries})"
@@ -5365,6 +5485,16 @@ def run_conversation(
                             "switching to fallback provider..."
                         )
                         if agent._try_activate_fallback():
+                            logger.warning(
+                                format_event(
+                                    "agent.fallback.activated",
+                                    turn_id=turn_id,
+                                    api_request_id=api_request_id,
+                                    reason="empty_response",
+                                    model=agent.model,
+                                    provider=agent.provider,
+                                )
+                            )
                             active_system_prompt = _sync_failover_system_message(
                                 agent, api_messages, active_system_prompt)
                             agent._empty_content_retries = 0
@@ -5744,10 +5874,10 @@ def run_conversation(
                 or api_call_count >= agent.max_iterations - 1
             ):
                 if _is_local_processing_error:
-                    _turn_exit_reason = f"local_processing_error({error_msg[:80]})"
+                    _turn_exit_reason = "local_processing_error"
                     final_response = f"I apologize, but I encountered an error while processing the model response: {error_msg}"
                 else:
-                    _turn_exit_reason = f"error_near_max_iterations({error_msg[:80]})"
+                    _turn_exit_reason = "error_near_max_iterations"
                     final_response = f"I apologize, but I encountered repeated errors: {error_msg}"
                 # Append as assistant so the history stays valid for
                 # session resume (avoids consecutive user messages).

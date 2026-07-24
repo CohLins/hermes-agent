@@ -68,6 +68,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Literal, Optional, Sequence
 from urllib.error import HTTPError, URLError
+
+from hermes_logging import format_event
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -1336,8 +1338,14 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
     _apply_runtime_ws_overrides()
     try:
         ws_client.start()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(
+            format_event(
+                "platform.ws.loop_failed",
+                platform="feishu",
+                error_type=type(exc).__name__,
+            )
+        )
     finally:
         ws_client_module.websockets.connect = original_connect
         if original_configure is not None:

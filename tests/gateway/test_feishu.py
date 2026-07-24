@@ -710,6 +710,52 @@ class TestAdapterModule(unittest.TestCase):
         self.assertEqual(fake_client._reconnect_nonce, 2)
         self.assertEqual(fake_client._reconnect_interval, 3)
         self.assertEqual(fake_client._ping_interval, 4)
+    def test_ws_runner_logs_start_failure_without_changing_cleanup(self):
+        import sys
+        from types import ModuleType
+
+        class _FailingWSClient:
+            def start(self):
+                raise RuntimeError("socket died")
+
+        fake_client = _FailingWSClient()
+        fake_adapter = SimpleNamespace(
+            _ws_thread_loop=None,
+            _ws_reconnect_nonce=2,
+            _ws_reconnect_interval=3,
+            _ws_ping_interval=None,
+            _ws_ping_timeout=None,
+        )
+        fake_client_module = ModuleType("lark_oapi.ws.client")
+        fake_client_module.loop = None
+        fake_client_module.websockets = SimpleNamespace(connect=AsyncMock())
+        fake_ws_module = ModuleType("lark_oapi.ws")
+        fake_ws_module.client = fake_client_module
+        fake_root_module = ModuleType("lark_oapi")
+        fake_root_module.ws = fake_ws_module
+
+        original_modules = sys.modules.copy()
+        sys.modules["lark_oapi"] = fake_root_module
+        sys.modules["lark_oapi.ws"] = fake_ws_module
+        sys.modules["lark_oapi.ws.client"] = fake_client_module
+        try:
+            from plugins.platforms.feishu.adapter import _run_official_feishu_ws_client
+
+            with self.assertLogs("plugins.platforms.feishu.adapter", level="ERROR") as logs:
+                _run_official_feishu_ws_client(fake_client, fake_adapter)
+        finally:
+            sys.modules.clear()
+            sys.modules.update(original_modules)
+
+        self.assertIsNone(fake_adapter._ws_thread_loop)
+        self.assertTrue(
+            any(
+                "event=platform.ws.loop_failed" in line
+                and "platform=feishu" in line
+                and "error_type=RuntimeError" in line
+                for line in logs.output
+            )
+        )
 
 
 def _admits_group(adapter, message, sender_id, chat_id=""):

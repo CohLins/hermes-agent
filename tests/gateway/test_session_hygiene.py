@@ -9,6 +9,7 @@ so CLI and messaging platforms behave identically.
 """
 
 import importlib
+import logging
 import sys
 import types
 from datetime import datetime
@@ -594,7 +595,9 @@ async def test_session_hygiene_preserves_transcript_when_in_place_configured_but
 
 
 @pytest.mark.asyncio
-async def test_session_hygiene_warns_user_when_compression_aborts(monkeypatch, tmp_path):
+async def test_session_hygiene_warns_user_when_compression_aborts(
+    monkeypatch, tmp_path, caplog
+):
     """When auxiliary compression's summary LLM call fails, the compressor
     ABORTS — returns messages unchanged, sets _last_compress_aborted=True,
     and drops nothing.  Gateway must surface a visible ⚠️ warning to the
@@ -691,10 +694,18 @@ async def test_session_hygiene_warns_user_when_compression_aborts(monkeypatch, t
         message_id="1",
     )
 
-    result = await runner._handle_message(event)
+    with caplog.at_level(logging.INFO, logger="gateway.run"):
+        result = await runner._handle_message(event)
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=compression.hygiene.check" in events
+    assert "token_source=estimated" in events
+    assert "message_count=6" in events
+    assert "event=compression.hygiene.trigger" in events
+    assert "event=compression.hygiene.result" in events
+    assert "outcome=aborted" in events
 
     assert result == "ok"
-    # The compressor reported abort → exactly one warning message must
     # have been delivered to the user.
     warning_messages = [s for s in adapter.sent if "Context compression aborted" in s["content"]]
     assert len(warning_messages) == 1, (

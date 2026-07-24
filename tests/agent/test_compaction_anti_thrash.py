@@ -106,6 +106,21 @@ class TestSavingsBasis:
 
 
 class TestFutilityGuard:
+    def test_breaker_event_reports_counts_without_mutating_state(self, caplog):
+        cc = _compressor(threshold_tokens=24_576)
+        cc._ineffective_compression_count = 2
+        cc._fallback_compression_streak = 1
+        before = (cc._ineffective_compression_count, cc._fallback_compression_streak)
+
+        with caplog.at_level("WARNING", logger="agent.context_compressor"):
+            assert cc._automatic_compression_blocked() is True
+
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=compression.breaker" in events
+        assert "ineffective_count=2" in events
+        assert "fallback_streak=1" in events
+        assert (cc._ineffective_compression_count, cc._fallback_compression_streak) == before
+
     def test_stops_when_floor_alone_meets_threshold(self):
         """Incompressible floor >= threshold -> shrinking messages cannot help."""
         cc = _compressor(threshold_tokens=24_576)

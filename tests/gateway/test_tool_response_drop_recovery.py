@@ -92,6 +92,33 @@ class TestExtractStripRecoveryAllPlatforms:
     platform (the fix de-scopes the recovery from Discord-only)."""
 
     @pytest.mark.asyncio
+    async def test_processing_emits_received_dispatched_and_complete_events(
+        self, platform, monkeypatch, caplog
+    ):
+        adapter = _DummyAdapter(platform)
+        adapter._keep_typing = _hold_typing
+
+        async def handler(_event):
+            return "done"
+
+        adapter.set_message_handler(handler)
+        event = _make_event(platform)
+
+        with caplog.at_level(logging.INFO, logger="gateway.platforms.base"):
+            await adapter._process_message_background(
+                event, build_session_key(event.source)
+            )
+
+        assert len(adapter.sent) == 1
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=gateway.inbound.dispatched" in events
+        assert "message_id=m1" in events
+        assert "event=gateway.processing.complete" in events
+        assert "outcome=success" in events
+        assert "delivery_attempted=true" in events
+        assert "delivery_succeeded=true" in events
+
+    @pytest.mark.asyncio
     async def test_response_reduced_to_empty_is_recovered_and_sent(
         self, platform, monkeypatch, caplog
     ):

@@ -985,6 +985,11 @@ NOTE: The agent's final response is auto-delivered to the target. Put the primar
 user-facing content in the final response. Cron jobs run autonomously with no user
 present — they cannot ask questions or request clarification.
 
+Important scheduling rules:
+- RELATIVE-TIME RULE: if the user requests a relative delay such as "in 5 minutes", "2 hours later", or "3 days from now", pass the duration directly as schedule='5m', schedule='2h', or schedule='3d'.
+- NEVER calculate or convert a relative delay into an ISO timestamp.
+- Use an ISO timestamp only when the user explicitly gives an absolute date or wall-clock time.
+
 Important safety rule: cron-run sessions should not recursively schedule more cron jobs.""",
     "parameters": {
         "type": "object",
@@ -1003,7 +1008,7 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
             },
             "schedule": {
                 "type": "string",
-                "description": "REQUIRED for action=create. For create/update: '30m', 'every 2h', '0 9 * * *', or ISO timestamp. Examples: '30m' (every 30 minutes), 'every 2h' (every 2 hours), '0 9 * * *' (daily at 9am), '2026-06-01T09:00:00' (one-shot). You MUST include this field when action=create."
+                "description": "REQUIRED for action=create. RELATIVE-TIME RULE: when the user says 'in N minutes/hours/days' or equivalent, pass the relative duration directly as 'Nm', 'Nh', or 'Nd' (for example '5m', '2h', or '3d'). NEVER calculate a relative request into an ISO timestamp; this avoids clock and timezone errors. Use an ISO timestamp only when the user explicitly requests an absolute date or wall-clock time. Recurring examples: 'every 2h', '0 9 * * *'. Absolute example: '2026-06-01T09:00:00+08:00'. You MUST include this field when action=create."
             },
             "name": {
                 "type": "string",

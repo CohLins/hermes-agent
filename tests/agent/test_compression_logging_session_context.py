@@ -13,6 +13,7 @@ asserts the logging context follows the rotation.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -57,6 +58,25 @@ def _build_agent_with_db(db: SessionDB, session_id: str):
     return agent
 
 
+def test_compression_boundary_emits_mode_and_message_counts(tmp_path: Path, caplog) -> None:
+    db = SessionDB(db_path=tmp_path / "state.db")
+    parent_sid = "BOUNDARY_EVENT_SESSION"
+    db.create_session(parent_sid, source="cli")
+    agent = _build_agent_with_db(db, parent_sid)
+    hermes_logging.set_session_context(parent_sid)
+
+    try:
+        messages = [{"role": "user", "content": f"m{i}"} for i in range(20)]
+        with caplog.at_level(logging.INFO, logger="agent.conversation_compression"):
+            agent._compress_context(messages, "sys", approx_tokens=120_000)
+
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=compression.boundary" in events
+        assert "in_place=false" in events
+        assert "rotated=true" in events
+        assert "messages_before=20" in events
+    finally:
+        hermes_logging.clear_session_context()
 def test_logging_session_context_follows_compression_rotation(tmp_path: Path) -> None:
     db = SessionDB(db_path=tmp_path / "state.db")
     parent_sid = "PARENT_LOGCTX_SESSION"

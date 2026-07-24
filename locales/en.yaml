@@ -60,6 +60,12 @@ gateway:
     usage_switch_model:     "`/model <name>` — switch model"
     usage_switch_provider:  "`/model <name> --provider <slug>` — switch provider"
     usage_persist:          "`/model <name> --global` — persist"
+    once_with_global:       "❌ /model --once cannot be combined with --global"
+    once_requires_model:    "❌ /model --once requires a model or provider."
+    cost_cancelled:         "🟡 Model switch cancelled. Current model unchanged ({model})."
+    unknown_value:          "unknown"
+    cost_warning_title:     "Expensive Model Warning"
+    cost_warning_message:   "⚠️ **Expensive Model Warning**\n\n{message}\n\n_Text fallback: reply `{prefix}approve` to switch or `{prefix}cancel` to keep the current model._"
 
   agents:
     header:                "🤖 **Active Agents & Tasks**"
@@ -159,6 +165,16 @@ gateway:
     resumed:               "▶ Goal resumed: {goal}\nSend any message to continue, or wait — I'll take the next step on the next turn."
     invalid:               "Invalid goal: {error}"
     set:                   "⊙ Goal set ({budget}-turn budget): {goal}\nI'll keep working until the goal is done, you pause/clear it, or the budget is exhausted.\nControls: /goal status · /goal pause · /goal resume · /goal clear"
+    wait_usage:            "Usage: /goal wait <pid> [reason]"
+    wait_pid_int:          "/goal wait: <pid> must be an integer process id."
+    wait_error:            "/goal wait: {error}"
+    wait_parked_reason:    "⏳ Goal parked on pid {pid} ({reason}). Loop pauses until it exits."
+    wait_parked:           "⏳ Goal parked on pid {pid}. Loop pauses until it exits."
+    unwait_cleared:        "▶ Wait barrier cleared — goal loop resumes."
+    unwait_none:           "No wait barrier set."
+    draft_usage:           "Usage: /goal draft <objective in plain language>"
+    contract_block:        "\nCompletion contract:\n{contract}"
+    draft_failed_suffix:   "\n(Couldn't draft a contract — running as a free-form goal.)"
 
   help:
     header:                "📖 **Hermes Commands**\n"
@@ -342,6 +358,24 @@ gateway:
     bound_status:            "This topic is linked to:\nSession: {label}\nID: {session_id}\n\nUse /new to replace this topic with a fresh session.\nFor parallel work, open All Messages and send a message there to create another topic."
     thread_ready:            "Telegram multi-session topics are enabled.\n\nThis topic will be used as an independent Hermes session. Use /new to replace this topic's current session. For parallel work, open All Messages and send a message there to create another topic."
     untitled_session:        "Untitled session"
+    no_chat_id:              "Could not determine chat ID."
+    disable_not_enabled:     "Multi-session topic mode is not currently enabled for this chat."
+    disable_failed:          "Failed to disable topic mode: {error}"
+    disabled_ok:             "Multi-session topic mode is now OFF for this chat.\n\nExisting topics in Telegram aren't removed — they'll just stop being gated as independent sessions. The root DM works as a normal Hermes chat again. Run /topic to re-enable later."
+    root_lobby:              "This main chat is reserved for system commands.\n\nTo start a new Hermes chat, open the All Messages topic at the top of this bot interface and send any message there. Telegram will create a new topic for that message; each topic works as an independent Hermes session."
+    root_new:                "To start a new parallel Hermes chat, open the All Messages topic at the top of this bot interface and send any message there. Telegram will create a new topic for it.\n\nEach topic is an independent Hermes session. Use /new inside an existing topic only if you want to replace that topic's current session."
+    new_header:              "Started a new Hermes session in this topic.\n\nTip: for parallel work, open All Messages and send a message there to create a separate topic instead of using /new here. /new replaces the session attached to the current topic."
+    help:                    "/topic — enable multi-session DM mode (one bot, many parallel chats)\n\nUsage:\n  /topic             Enable topic mode, or show status if already on\n  /topic help        Show this message\n  /topic off         Disable topic mode and clear topic bindings\n  /topic <id>        Inside a topic: restore a previous session by ID\n\nHow it works:\n1. Run /topic once in this DM — Hermes checks BotFather Threads\n   Settings are enabled and flips on multi-session mode.\n2. Tap All Messages at the top of the bot and send any message.\n   Telegram creates a new topic for that message; each topic is\n   an independent Hermes session (fresh history, fresh context).\n3. The root DM becomes a system lobby — send /topic, /status,\n   /help, /usage there. Normal prompts go in a topic.\n4. /new inside a topic resets just that topic's session.\n5. /topic <id> inside a topic restores an old session into it."
+    restore_not_found:       "Session not found: {id}"
+    restore_not_telegram:    "That session is not a Telegram session and cannot be restored into this topic."
+    restore_wrong_user:      "That session does not belong to this Telegram user."
+    restore_already_linked:  "That session is already linked to another Telegram topic."
+    restore_ok:              "Session restored: {title}"
+    restore_last_msg:        "\n\nLast Hermes message:\n{message}"
+    root_status_header:      "Telegram multi-session topics are enabled.\n\nTo create a new Hermes chat, open All Messages at the top of this bot interface and send any message there. Telegram will create a new topic for it."
+    root_status_prev_header: "Previous unlinked sessions:"
+    root_status_restore_one: "To restore one:\n1. Create or open a topic. To create a new one, open All Messages and send any message there.\n2. Send /topic <session-id> inside that topic.\nExample: Send /topic {example_id} inside a topic."
+    root_status_restore_later: "No previous unlinked Telegram sessions found.\n\nTo restore a previous session later:\n1. Create or open a topic. To create a new one, open All Messages and send any message there.\n2. Send /topic <session-id> inside that topic."
 
   undo:
     nothing:               "Nothing to undo."
@@ -416,10 +450,187 @@ gateway:
     label_all:             "TTS (voice reply to all messages)"
     help:                  "{toggle}\n\n**How /voice works**\n• `/voice on` — voice reply when you send a voice message\n• `/voice tts` — voice reply to *every* message\n• `/voice off` — back to text-only replies\n• `/voice status` — show the current mode\n• `/voice` (no argument) — quick toggle between on and off{channels}"
     help_channels:         "\n\n**Live voice channels (Discord)**\n• Join a voice channel first, then `/voice channel` — I'll join, listen, and speak my replies\n• `/voice leave` — disconnect from the voice channel"
+    channels_not_supported: "Voice channels are not supported on this platform."
+    discord_server_only:   "This command only works in a Discord server."
+    need_channel_first:    "You need to be in a voice channel first."
+    deps_missing:          "Voice dependencies are missing (PyNaCl / davey). Install with: `{executable} -m pip install PyNaCl`"
+    join_failed_error:     "Failed to join voice channel: {error}"
+    joined:                "Joined voice channel **{channel}**.\nI'll speak my replies and listen to you. Use /voice leave to disconnect."
+    join_failed_perms:     "Failed to join voice channel. Check bot permissions (Connect + Speak)."
+    not_in_channel:        "Not in a voice channel."
+    left:                  "Left voice channel."
 
   yolo:
     disabled:                   "⚠️ YOLO mode **OFF** for this session — dangerous commands will require approval."
     enabled:                    "⚡ YOLO mode **ON** for this session — all commands auto-approved. Use with caution."
+
+  whoami:
+    unrestricted:          "**You** — {platform} ({scope})\nUser ID: `{user_id}`\nTier: unrestricted (no admin list configured for this scope)\nSlash commands: all available"
+    admin:                 "**You** — {platform} ({scope})\nUser ID: `{user_id}`\nTier: **admin**\nSlash commands: all available"
+    user:                  "**You** — {platform} ({scope})\nUser ID: `{user_id}`\nTier: user\nSlash commands you can run: {runnable}"
+    scope_dm:              "DM"
+    scope_group:           "group/channel"
+    none:                  "(none)"
+
+  platform:
+    list_header:           "**Gateway platforms**"
+    connected:             "Connected: {names}"
+    connected_none:        "Connected: (none)"
+    pause_reason_default:  "paused"
+    pause_reason_manual:   "paused via /platform pause"
+    list_paused:           "  · {platform} — PAUSED ({reason}). Resume with `/platform resume {platform}`."
+    list_retrying:         "  · {platform} — retrying (attempt {attempts})"
+    failed_none:           "Failed/paused: (none)"
+    usage_action:          "Usage: /platform {action} <name>"
+    unknown:               "Unknown platform: {target}"
+    not_in_queue_pause:    "{platform} is not in the retry queue (it's either connected or not enabled)."
+    already_paused:        "{platform} is already paused."
+    paused_ok:             "✓ {platform} paused. Resume with `/platform resume {platform}` or `hermes gateway restart` to reset."
+    not_in_queue_resume:   "{platform} is not in the retry queue — nothing to resume."
+    already_retrying:      "{platform} is already retrying — no resume needed."
+    resumed_ok:            "✓ {platform} resumed — retrying on next watcher tick."
+    usage:                 "Usage: /platform <list|pause|resume> [name]\n  /platform list — show platform status\n  /platform pause <name> — stop retrying a failing platform\n  /platform resume <name> — re-queue a paused platform"
+
+  subgoal:
+    no_active_goal:        "No active goal. Set one with /goal <text>."
+    remove_usage:          "Usage: /subgoal remove <n>"
+    remove_int:            "/subgoal remove: <n> must be an integer (1-based index)."
+    remove_error:          "/subgoal remove: {error}"
+    removed:               "✓ Removed subgoal {idx}: {text}"
+    clear_error:           "/subgoal clear: {error}"
+    cleared_one:           "✓ Cleared 1 subgoal."
+    cleared_many:          "✓ Cleared {count} subgoals."
+    clear_none:            "No subgoals to clear."
+    add_error:             "/subgoal: {error}"
+    added:                 "✓ Added subgoal {idx}: {text}"
+
+  skills:
+    approval_off:          "Skill write approval is off (skills.write_approval). Enable it with /skills approval on, then review staged writes here with /skills pending."
+    unknown_subcommand:    "Unknown /skills subcommand on this platform. Use: pending, approve <id>, reject <id>, diff <id>, approval <on|off>. (Search/install are CLI-only.)"
+
+  bundles:
+    subsystem_unavailable: "Bundles subsystem unavailable: {error}"
+    none_installed:        "No skill bundles installed.\nCreate one on the host with:\n  `hermes bundles create <name> --skill <s1> --skill <s2>`\nDirectory: `{dir}`"
+    header:                "**Skill Bundles** ({count} installed):"
+    default_desc:          "Load {count} skills"
+    item:                  "• `/{slug}` — {desc} _({count} skills)_"
+    footer:                "Invoke a bundle with `/<slug>` to load all its skills."
+
+  sessions:
+    search_usage:          "Usage: `/sessions search <query>`"
+
+  codex_runtime:
+    config_load_failed:    "❌ Could not load config: {error}"
+
+  # Replies emitted while an agent is already running (Level-2 mid-run
+  # dispatch in _handle_message) or by shared helpers such as drain/steer.
+  mid_run:
+    queue_usage:           "Usage: /queue <prompt>"
+    queued:                "Queued for the next turn."
+    queued_n:              "Queued for the next turn. ({count} queued)"
+    steer_usage:           "Usage: /steer <prompt>"
+    steer_usage_noagent:   "Usage: /steer <prompt>  (no agent is running; sending as a normal message)"
+    steer_starting:        "Agent still starting — /steer queued for the next turn."
+    steer_failed:          "⚠️ Steer failed: {error}"
+    steer_queued:          "⏩ Steer queued — arrives after the next tool call: '{preview}'"
+    steer_rejected:        "Steer rejected (empty payload)."
+    steer_no_agent:        "No active agent — /steer queued for the next turn."
+    model_busy:            "Agent is running — wait or /stop first, then switch models."
+    codex_busy:            "Agent is running — wait or /stop first, then change runtime."
+    goal_busy:             "Agent is running — use /goal status / pause / clear / wait mid-run, or /stop before setting a new goal."
+    moa_busy:              "Agent is running — wait or /stop first, then run /moa."
+    moa_prepare_failed:    "Failed to prepare MoA turn."
+    command_busy:          "⏳ Agent is running — `/{command}` can't run mid-turn. Wait for the current response or `/stop` first."
+    force_stopped:         "⚡ Force-stopped. The agent was still starting — session unlocked."
+    hook_blocked:          "Command `/{command}` was blocked by a hook."
+    new_confirm_detail:    "This starts a fresh session and discards the current conversation history."
+    learn_ack_described:   "Learning a skill from what you described…"
+    learn_ack_conversation: "Learning a skill from this conversation…"
+    learn_failed:          "Could not start /learn — please try again."
+    gerund_restarting:     "restarting"
+    gerund_shutting_down:  "shutting down"
+    drain_queued:          "⏳ Gateway {gerund} — queued for the next turn after it comes back."
+    drain_busy:            "⏳ Gateway is {gerund} and is not accepting another turn right now."
+    drain_busy_new_work:   "⏳ Gateway is {gerund} and is not accepting new work right now."
+    external_drain:        "⏳ This agent is draining for a maintenance action and isn't accepting new turns right now. It'll be back in a moment — please resend shortly."
+    update_send_failed:    "✗ Failed to send response to update process: {error}"
+    update_sent:           "✓ Sent `{label}` to the update process."
+    skill_installed_disabled: "The **{name}** skill is installed but disabled.\nEnable it with: `hermes skills config`"
+    skill_not_installed:   "The **{name}** skill is available but not installed.\nInstall it with: `hermes skills install {install_path}`"
+    skill_disabled:        "The **{name}** skill is disabled for {platform}.\nEnable it with: `hermes skills config`"
+    skills_disabled_stacked: "The **{names}** skill(s) in this stacked invocation are disabled for {platform}.\nEnable them with: `hermes skills config`"
+    stacked_load_failed:   "Failed to load stacked skills for /{command}."
+    unknown_command:       "Unknown command `/{command}`. Type /commands to see what's available, or resend without the leading slash to send as a regular message."
+
+  # User-defined quick commands (exec/alias) that bypass the agent loop.
+  quick_command:
+    no_output:             "Command returned no output."
+    timed_out:             "Quick command timed out (30s)."
+    error:                 "Quick command error: {error}"
+    no_command:            "Quick command '/{command}' has no command defined."
+    no_target:             "Quick command '/{command}' has no target defined."
+    bad_type:              "Quick command '/{command}' has unsupported type (supported: 'exec', 'alias')."
+
+  session:
+    active_limit:          "Hermes is at the active session limit ({active}/{maximum}). Try again when another session finishes."
+
+  # Denial message when a non-admin runs an admin-only slash command.
+  slash_access:
+    can_run_suffix:        "You can run: {commands}. Use /whoami for the full list."
+    none_suffix:           "No slash commands are enabled for non-admins on this platform. Ask an admin to add you to allow_admin_from or to set user_allowed_commands."
+    admin_only:            "⛔ /{command} is admin-only here. {suffix}"
+
+  # Confirmation prompt for destructive session commands (/new, /reset, /undo).
+  slash_confirm:
+    undo_detail_one:       "This removes the last user/assistant exchange from history."
+    undo_detail_n:         "This removes the last {count} user turns from history."
+    cancelled:             "🟡 /{command} cancelled. Conversation unchanged."
+    always_note:           "\n\nℹ️ Future /clear, /new, /reset, and /undo will run without confirmation. Re-enable via `approvals.destructive_slash_confirm: true` in config.yaml."
+    prompt:                "⚠️ **Confirm /{command}**\n\n{detail}\n\nChoose:\n• **Approve Once** — proceed this time only\n• **Always Approve** — proceed and silence this prompt permanently\n• **Cancel** — keep current conversation\n\n_Text fallback: reply `{prefix}approve`, `{prefix}always`, or `{prefix}cancel`._"
+
+  suggestions:
+    command_failed:        "Suggestions command failed: {error}"
+
+  blueprint:
+    command_failed:        "Cron blueprint command failed: {error}"
+
+  # User-safe replies mapped from raw provider/API errors (_gateway_provider_error_reply,
+  # run_sync). Raw provider details stay in the logs, never in chat.
+  provider_error:
+    auth_failed:           "⚠️ Provider authentication failed. Check the configured credentials; raw provider details are in the gateway logs."
+    policy_rejected:       "⚠️ The model provider rejected the request. I kept the raw provider error out of chat; check gateway logs for details or try rephrasing."
+    rate_limited:          "⏱️ The model provider is rate-limiting requests. Please wait a moment and try again."
+    failed_after_retries:  "⚠️ The model provider failed after retries. I kept raw provider details out of chat; check gateway logs for diagnostics."
+    auth_failed_detail:    "⚠️ Provider authentication failed: {error}"
+
+  # Fallbacks when a turn produces no usable response (_normalize_empty_agent_response).
+  session_error:
+    context_too_large:     "⚠️ Session too large for the model's context window.\nUse /compact to compress the conversation, or /reset to start fresh."
+    request_failed:        "The request failed: {error}\nTry again or use /reset to start a fresh session."
+    interrupted_before_start: "⚠️ Your message was interrupted before processing started (likely by a recent /stop). Please send it again."
+    processing_stopped:    "⚠️ Processing stopped: {error}. Try again."
+    no_response_generated: "⚠️ Processing completed but no response was generated. This may be a transient error — try sending your message again."
+    not_processed:         "⚠️ Your message wasn't processed (the previous turn was still being cleaned up). Please send it again."
+
+  # HTTP-status hints appended to the generic agent-exception reply (_handle_message_with_agent).
+  # Each hint begins with a leading space so it concatenates after the base sentence.
+  agent_error:
+    hint_401:              " Check your API key or run `claude /login` to refresh OAuth credentials."
+    hint_402:              " Your API balance or quota is exhausted. Check your provider dashboard."
+    hint_usage_limit_reset: " Your plan's usage limit has been reached. It resets in ~{hours}h."
+    hint_usage_limit:      " Your plan's usage limit has been reached. Please wait until it resets."
+    hint_rate_limited:     " You are being rate-limited. Please wait a moment and try again."
+    hint_overloaded:       " The API is temporarily overloaded. Please try again shortly."
+    hint_rejected:         " The request was rejected by the API."
+    unexpected:            "Sorry, I encountered an unexpected error.{status_hint}\nTry again or use /reset to start a fresh session."
+
+  # Remote proxy-mode agent errors (_run_agent_via_proxy).
+  proxy:
+    requires_aiohttp:      "⚠️ Proxy mode requires aiohttp. Install with: pip install aiohttp"
+    url_not_configured:    "⚠️ Proxy URL not configured (GATEWAY_PROXY_URL or gateway.proxy_url)"
+    error:                 "⚠️ Proxy error ({status}): {detail}"
+    connection_error:      "⚠️ Proxy connection error: {error}"
+    no_response:           "(No response from remote agent)"
 
   shared:
     session_db_unavailable:      "Session database not available."

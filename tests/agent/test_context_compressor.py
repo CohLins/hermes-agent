@@ -675,6 +675,38 @@ class TestNonStringContent:
         assert summary is None
         assert c._summary_failure_cooldown_until > 0
 
+    def test_aux_model_fallback_emits_summary_events(self, caplog):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = ""
+
+        with patch("agent.context_compressor.get_model_context_length", return_value=100000):
+            c = ContextCompressor(
+                model="glm-5",
+                summary_model_override="glm-5.1",
+                quiet_mode=True,
+            )
+
+        messages = [
+            {"role": "user", "content": "do something"},
+            {"role": "assistant", "content": "ok"},
+        ]
+
+        with caplog.at_level("INFO", logger="agent.context_compressor"), patch(
+            "agent.context_compressor.call_llm", return_value=mock_response
+        ):
+            c._generate_summary(messages)
+
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=compression.summary.start" in events
+        assert "model=glm-5.1" in events
+        assert "event=compression.summary.fallback" in events
+        assert "reason=failed" in events
+        assert "fallback_model=glm-5" in events
+        assert "error_type=RuntimeError" in events
+        assert "event=compression.summary.result" in events
+        assert "success=false" in events
+
     def test_empty_content_falls_back_to_main_model(self):
         """When the auxiliary summary model returns empty content and a distinct
         main model is configured, compression falls back to the main model

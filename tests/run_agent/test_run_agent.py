@@ -4324,6 +4324,36 @@ class TestRunConversation:
         assert result["final_response"] == "Done searching"
         assert mock_handle_function_call.call_args.args[:2] == ("web_search", {})
 
+    def test_api_lifecycle_emits_stable_events_without_content(self, agent, caplog):
+        self._setup_agent(agent)
+        agent.client.chat.completions.create.return_value = _mock_response(
+            content="sensitive final answer",
+            finish_reason="stop",
+        )
+
+        with (
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+            caplog.at_level(logging.INFO, logger="agent.conversation_loop"),
+        ):
+            result = agent.run_conversation("sensitive user message")
+
+        assert result["final_response"] == "sensitive final answer"
+        event_messages = [
+            record.getMessage()
+            for record in caplog.records
+            if "event=agent." in record.getMessage()
+        ]
+        events = "\n".join(event_messages)
+        assert "event=agent.turn.start" in events
+        assert "event=agent.api.request" in events
+        assert "api_request_id=" in events
+        assert "event=agent.api.result" in events
+        assert "finish_reason=stop" in events
+        assert "sensitive user message" not in events
+        assert "sensitive final answer" not in events
+
     def test_request_scoped_api_hooks_fire_for_each_api_call(self, agent):
         self._setup_agent(agent)
         tc = _mock_tool_call(name="web_search", arguments="{}", call_id="c1")

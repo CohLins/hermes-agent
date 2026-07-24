@@ -374,24 +374,14 @@ class GatewaySlashCommandsMixin:
         policy = _policy_for_source(self.config, source)
         platform = source.platform.value if source and source.platform else "?"
         chat_type = (source.chat_type if source else "") or "dm"
-        scope = "DM" if chat_type.lower() in {"dm", "direct", "private", ""} else "group/channel"
+        scope = t("gateway.whoami.scope_dm") if chat_type.lower() in {"dm", "direct", "private", ""} else t("gateway.whoami.scope_group")
         user_id = (source.user_id if source else None) or "?"
 
         if not policy.enabled:
-            return (
-                f"**You** — {platform} ({scope})\n"
-                f"User ID: `{user_id}`\n"
-                f"Tier: unrestricted (no admin list configured for this scope)\n"
-                f"Slash commands: all available"
-            )
+            return t("gateway.whoami.unrestricted", platform=platform, scope=scope, user_id=user_id)
 
         if policy.is_admin(user_id):
-            return (
-                f"**You** — {platform} ({scope})\n"
-                f"User ID: `{user_id}`\n"
-                f"Tier: **admin**\n"
-                f"Slash commands: all available"
-            )
+            return t("gateway.whoami.admin", platform=platform, scope=scope, user_id=user_id)
 
         # Non-admin user. Show what's actually reachable.
         floor = ["help", "whoami"]  # mirrors slash_access._ALWAYS_ALLOWED_FOR_USERS
@@ -403,13 +393,8 @@ class GatewaySlashCommandsMixin:
             if c not in seen:
                 seen.add(c)
                 runnable.append(c)
-        runnable_str = ", ".join(f"/{c}" for c in runnable) if runnable else "(none)"
-        return (
-            f"**You** — {platform} ({scope})\n"
-            f"User ID: `{user_id}`\n"
-            f"Tier: user\n"
-            f"Slash commands you can run: {runnable_str}"
-        )
+        runnable_str = ", ".join(f"/{c}" for c in runnable) if runnable else t("gateway.whoami.none")
+        return t("gateway.whoami.user", platform=platform, scope=scope, user_id=user_id, runnable=runnable_str)
 
     async def _handle_kanban_command(self, event: MessageEvent) -> str:
         """Handle /kanban — delegate to the shared kanban CLI.
@@ -1177,71 +1162,48 @@ class GatewaySlashCommandsMixin:
             return None
 
         if action == "list":
-            lines = ["**Gateway platforms**"]
+            lines = [t("gateway.platform.list_header")]
             connected = sorted(p.value for p in self.adapters.keys())
             if connected:
-                lines.append("Connected: " + ", ".join(connected))
+                lines.append(t("gateway.platform.connected", names=", ".join(connected)))
             else:
-                lines.append("Connected: (none)")
+                lines.append(t("gateway.platform.connected_none"))
             failed = getattr(self, "_failed_platforms", {}) or {}
             if failed:
                 for p, info in failed.items():
                     if info.get("paused"):
-                        reason = info.get("pause_reason") or "paused"
-                        lines.append(
-                            f"  · {p.value} — PAUSED ({reason}). "
-                            f"Resume with `/platform resume {p.value}`."
-                        )
+                        reason = info.get("pause_reason") or t("gateway.platform.pause_reason_default")
+                        lines.append(t("gateway.platform.list_paused", platform=p.value, reason=reason))
                     else:
                         attempts = info.get("attempts", 0)
-                        lines.append(
-                            f"  · {p.value} — retrying (attempt {attempts})"
-                        )
+                        lines.append(t("gateway.platform.list_retrying", platform=p.value, attempts=attempts))
             else:
-                lines.append("Failed/paused: (none)")
+                lines.append(t("gateway.platform.failed_none"))
             return "\n".join(lines)
 
         if action in {"pause", "resume"}:
             if not target:
-                return f"Usage: /platform {action} <name>"
+                return t("gateway.platform.usage_action", action=action)
             platform = _resolve_platform(target)
             if platform is None:
-                return f"Unknown platform: {target}"
+                return t("gateway.platform.unknown", target=target)
             failed = getattr(self, "_failed_platforms", {}) or {}
             if action == "pause":
                 if platform not in failed:
-                    return (
-                        f"{platform.value} is not in the retry queue "
-                        f"(it's either connected or not enabled)."
-                    )
+                    return t("gateway.platform.not_in_queue_pause", platform=platform.value)
                 if failed[platform].get("paused"):
-                    return f"{platform.value} is already paused."
-                self._pause_failed_platform(platform, reason="paused via /platform pause")
-                return (
-                    f"✓ {platform.value} paused. "
-                    f"Resume with `/platform resume {platform.value}` or "
-                    f"`hermes gateway restart` to reset."
-                )
+                    return t("gateway.platform.already_paused", platform=platform.value)
+                self._pause_failed_platform(platform, reason=t("gateway.platform.pause_reason_manual"))
+                return t("gateway.platform.paused_ok", platform=platform.value)
             # action == "resume"
             if platform not in failed:
-                return (
-                    f"{platform.value} is not in the retry queue — "
-                    f"nothing to resume."
-                )
+                return t("gateway.platform.not_in_queue_resume", platform=platform.value)
             if not failed[platform].get("paused"):
-                return (
-                    f"{platform.value} is already retrying — "
-                    f"no resume needed."
-                )
+                return t("gateway.platform.already_retrying", platform=platform.value)
             self._resume_paused_platform(platform)
-            return f"✓ {platform.value} resumed — retrying on next watcher tick."
+            return t("gateway.platform.resumed_ok", platform=platform.value)
 
-        return (
-            "Usage: /platform <list|pause|resume> [name]\n"
-            "  /platform list — show platform status\n"
-            "  /platform pause <name> — stop retrying a failing platform\n"
-            "  /platform resume <name> — re-queue a paused platform"
-        )
+        return t("gateway.platform.usage")
 
     async def _handle_restart_command(self, event: MessageEvent) -> Union[str, EphemeralReply]:
         """Handle /restart command - drain active work, then restart the gateway."""
@@ -1471,9 +1433,9 @@ class GatewaySlashCommandsMixin:
         is_session = parsed_flags.is_session
         one_turn = parsed_flags.is_once
         if is_global_flag and one_turn:
-            return "❌ /model --once cannot be combined with --global"
+            return t("gateway.model.once_with_global")
         if one_turn and not model_input and not explicit_provider:
-            return "❌ /model --once requires a model or provider."
+            return t("gateway.model.once_requires_model")
         persist_global = resolve_persist_behavior(
             is_global_flag,
             is_session,
@@ -2114,10 +2076,8 @@ class GatewaySlashCommandsMixin:
         if _cost_warning is not None:
             async def _on_cost_confirm(choice: str) -> str:
                 if choice == "cancel":
-                    return (
-                        f"🟡 Model switch cancelled. Current model unchanged "
-                        f"({current_model or 'unknown'})."
-                    )
+                    return t("gateway.model.cost_cancelled",
+                             model=current_model or t("gateway.model.unknown_value"))
                 # "once" and "always" both proceed — there is no persistent
                 # opt-out for the cost guard (each expensive switch should be
                 # an explicit decision).
@@ -2127,12 +2087,9 @@ class GatewaySlashCommandsMixin:
             return await self._request_slash_confirm(
                 event=event,
                 command="model",
-                title="Expensive Model Warning",
-                message=(
-                    f"⚠️ **Expensive Model Warning**\n\n{_cost_warning.message}\n\n"
-                    f"_Text fallback: reply `{_p}approve` to switch or `{_p}cancel` to keep "
-                    "the current model._"
-                ),
+                title=t("gateway.model.cost_warning_title"),
+                message=t("gateway.model.cost_warning_message",
+                          message=_cost_warning.message, prefix=_p),
                 handler=_on_cost_confirm,
             )
 
@@ -2161,7 +2118,7 @@ class GatewaySlashCommandsMixin:
         try:
             from hermes_cli.config import load_config, save_config
         except Exception as exc:
-            return f"❌ Could not load config: {exc}"
+            return t("gateway.codex_runtime.config_load_failed", error=exc)
         cfg = load_config()
 
         result = crs.apply(
@@ -2349,25 +2306,26 @@ class GatewaySlashCommandsMixin:
         if lower == "wait" or lower.startswith("wait "):
             wait_arg = args[len("wait"):].strip()
             if not wait_arg:
-                return "Usage: /goal wait <pid> [reason]"
+                return t("gateway.goal.wait_usage")
             wtokens = wait_arg.split(None, 1)
             try:
                 pid = int(wtokens[0])
             except ValueError:
-                return "/goal wait: <pid> must be an integer process id."
+                return t("gateway.goal.wait_pid_int")
             reason = wtokens[1].strip() if len(wtokens) > 1 else ""
             try:
                 mgr.wait_on(pid, reason=reason)
             except (RuntimeError, ValueError) as exc:
-                return f"/goal wait: {exc}"
-            rtxt = f" ({reason})" if reason else ""
-            return f"⏳ Goal parked on pid {pid}{rtxt}. Loop pauses until it exits."
+                return t("gateway.goal.wait_error", error=exc)
+            if reason:
+                return t("gateway.goal.wait_parked_reason", pid=pid, reason=reason)
+            return t("gateway.goal.wait_parked", pid=pid)
 
         # /goal unwait — clear the wait barrier.
         if lower == "unwait":
             if mgr.stop_waiting():
-                return "▶ Wait barrier cleared — goal loop resumes."
-            return "No wait barrier set."
+                return t("gateway.goal.unwait_cleared")
+            return t("gateway.goal.unwait_none")
 
         # /goal draft <objective> → draft a structured completion contract,
         # then set it. The aux LLM call is sync; run it off the event loop.
@@ -2375,7 +2333,7 @@ class GatewaySlashCommandsMixin:
         if lower.startswith("draft"):
             objective = args[len("draft"):].strip()
             if not objective:
-                return "Usage: /goal draft <objective in plain language>"
+                return t("gateway.goal.draft_usage")
             try:
                 import asyncio
                 from hermes_cli.goals import draft_contract
@@ -2423,10 +2381,10 @@ class GatewaySlashCommandsMixin:
 
         base = t("gateway.goal.set", budget=state.max_turns, goal=state.goal)
         if state.has_contract():
-            return f"{base}\nCompletion contract:\n{state.contract.render_block()}"
+            return base + t("gateway.goal.contract_block", contract=state.contract.render_block())
         if lower.startswith("draft"):
             # Drafting was requested but the aux model couldn't produce one.
-            return f"{base}\n(Couldn't draft a contract — running as a free-form goal.)"
+            return base + t("gateway.goal.draft_failed_suffix")
         return base
 
     async def _handle_subgoal_command(self, event: "MessageEvent") -> str:
@@ -2441,7 +2399,7 @@ class GatewaySlashCommandsMixin:
         if mgr is None:
             return t("gateway.goal.unavailable")
         if not mgr.has_goal():
-            return "No active goal. Set one with /goal <text>."
+            return t("gateway.subgoal.no_active_goal")
 
         # No args → list current subgoals.
         if not args:
@@ -2453,32 +2411,34 @@ class GatewaySlashCommandsMixin:
 
         if verb == "remove":
             if not rest:
-                return "Usage: /subgoal remove <n>"
+                return t("gateway.subgoal.remove_usage")
             try:
                 idx = int(rest.split()[0])
             except ValueError:
-                return "/subgoal remove: <n> must be an integer (1-based index)."
+                return t("gateway.subgoal.remove_int")
             try:
                 removed = mgr.remove_subgoal(idx)
             except (IndexError, RuntimeError) as exc:
-                return f"/subgoal remove: {exc}"
-            return f"✓ Removed subgoal {idx}: {removed}"
+                return t("gateway.subgoal.remove_error", error=exc)
+            return t("gateway.subgoal.removed", idx=idx, text=removed)
 
         if verb == "clear":
             try:
                 prev = mgr.clear_subgoals()
             except RuntimeError as exc:
-                return f"/subgoal clear: {exc}"
+                return t("gateway.subgoal.clear_error", error=exc)
+            if prev == 1:
+                return t("gateway.subgoal.cleared_one")
             if prev:
-                return f"✓ Cleared {prev} subgoal{'s' if prev != 1 else ''}."
-            return "No subgoals to clear."
+                return t("gateway.subgoal.cleared_many", count=prev)
+            return t("gateway.subgoal.clear_none")
 
         try:
             text = mgr.add_subgoal(args)
         except (ValueError, RuntimeError) as exc:
-            return f"/subgoal: {exc}"
+            return t("gateway.subgoal.add_error", error=exc)
         idx = len(mgr.state.subgoals) if mgr.state else 0
-        return f"✓ Added subgoal {idx}: {text}"
+        return t("gateway.subgoal.added", idx=idx, text=text)
 
     async def _handle_undo_command(self, event: MessageEvent) -> str:
         """Handle /undo [N] — back up N user turns (default 1), soft-deleting
@@ -3055,9 +3015,7 @@ class GatewaySlashCommandsMixin:
         gate_on = wa.write_approval_enabled(wa.SKILLS)
         wants_toggle = bool(args) and args[0].lower() in {"approval", "mode"}
         if not gate_on and not wants_toggle and wa.pending_count(wa.SKILLS) == 0:
-            return ("Skill write approval is off (skills.write_approval). "
-                    "Enable it with /skills approval on, then review staged "
-                    "writes here with /skills pending.")
+            return t("gateway.skills.approval_off")
 
         def _set_approval(enabled: bool):
             import yaml
@@ -3074,9 +3032,7 @@ class GatewaySlashCommandsMixin:
             wa.SKILLS, args, set_mode_fn=_set_approval,
         )
         if out is None:
-            return ("Unknown /skills subcommand on this platform. Use: pending, "
-                    "approve <id>, reject <id>, diff <id>, approval <on|off>. "
-                    "(Search/install are CLI-only.)")
+            return t("gateway.skills.unknown_subcommand")
 
         # Chat bubbles can't hold a full skill diff — truncate and point at
         # the real review surface. (Note: `hermes skills diff <name>` is a
@@ -3955,7 +3911,7 @@ class GatewaySlashCommandsMixin:
             return t("gateway.resume.parse_error", error=exc)
 
         if search_query == "":
-            return "Usage: `/sessions search <query>`"
+            return t("gateway.sessions.search_usage")
 
         if target:
             resume_event = dataclasses.replace(event, text=f"/resume {target}")
@@ -4572,28 +4528,23 @@ class GatewaySlashCommandsMixin:
             from agent.skill_bundles import list_bundles, _bundles_dir
         except Exception as exc:
             logger.warning("Bundles command unavailable: %s", exc)
-            return f"Bundles subsystem unavailable: {exc}"
+            return t("gateway.bundles.subsystem_unavailable", error=exc)
 
         bundles = list_bundles()
         if not bundles:
-            return (
-                "No skill bundles installed.\n"
-                "Create one on the host with:\n"
-                "  `hermes bundles create <name> --skill <s1> --skill <s2>`\n"
-                f"Directory: `{_bundles_dir()}`"
-            )
+            return t("gateway.bundles.none_installed", dir=_bundles_dir())
 
-        lines = [f"**Skill Bundles** ({len(bundles)} installed):", ""]
+        lines = [t("gateway.bundles.header", count=len(bundles)), ""]
         for info in bundles:
             skill_count = len(info.get("skills", []))
-            desc = info.get("description") or f"Load {skill_count} skills"
+            desc = info.get("description") or t("gateway.bundles.default_desc", count=skill_count)
             lines.append(
-                f"• `/{info['slug']}` — {desc} _({skill_count} skills)_"
+                t("gateway.bundles.item", slug=info['slug'], desc=desc, count=skill_count)
             )
             for s in info.get("skills", []):
                 lines.append(f"    · {s}")
         lines.append("")
-        lines.append("Invoke a bundle with `/<slug>` to load all its skills.")
+        lines.append(t("gateway.bundles.footer"))
         return "\n".join(lines)
 
     async def _handle_approve_command(self, event: MessageEvent) -> Optional[str]:

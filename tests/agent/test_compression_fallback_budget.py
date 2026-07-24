@@ -145,9 +145,21 @@ def _fail_with_timeout(compressor, now):
         return compressor._generate_summary(_msgs())
 
 
-def test_timeout_cooldown_escalates_and_caps():
+def test_timeout_cooldown_escalation_emits_stable_event(caplog):
     c = _make_compressor()
 
+    with caplog.at_level("WARNING", logger="agent.context_compressor"):
+        assert _fail_with_timeout(c, 1000.0) is None
+
+    events = "\n".join(record.getMessage() for record in caplog.records)
+    assert "event=compression.cooldown" in events
+    assert "remaining_seconds=60" in events
+    assert "timeout_streak=1" in events
+    assert c._consecutive_timeout_failures == 1
+
+
+def test_timeout_cooldown_escalates_and_caps():
+    c = _make_compressor()
     assert _fail_with_timeout(c, 1000.0) is None
     assert c._summary_failure_cooldown_until == 1000.0 + 60
 

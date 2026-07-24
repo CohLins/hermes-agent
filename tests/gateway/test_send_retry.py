@@ -116,6 +116,22 @@ class TestIsTimeoutError:
 
 class TestSendWithRetrySuccess:
     @pytest.mark.asyncio
+    async def test_success_first_attempt_emits_delivery_events(self, caplog):
+        adapter = _StubAdapter()
+        adapter._send_results = [SendResult(success=True, message_id="123")]
+
+        with caplog.at_level("INFO", logger="gateway.platforms.base"):
+            result = await adapter._send_with_retry("chat1", "hello")
+
+        assert result.success
+        assert len(adapter._send_calls) == 1
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=delivery.attempt" in events
+        assert "attempt=0" in events
+        assert "event=delivery.succeeded" in events
+        assert "content_len=5" in events
+
+    @pytest.mark.asyncio
     async def test_success_first_attempt(self):
         adapter = _StubAdapter()
         adapter._send_results = [SendResult(success=True, message_id="123")]
@@ -137,6 +153,28 @@ class TestSendWithRetrySuccess:
 
 class TestSendWithRetryNetworkRetry:
     @pytest.mark.asyncio
+    async def test_retries_emit_retry_and_success_events(self, caplog):
+        adapter = _StubAdapter()
+        adapter._send_results = [
+            SendResult(success=False, error="httpx.ConnectError: connection refused"),
+            SendResult(success=True, message_id="ok"),
+        ]
+
+        with caplog.at_level("INFO", logger="gateway.platforms.base"):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                result = await adapter._send_with_retry(
+                    "chat1", "hello", max_retries=2, base_delay=0
+                )
+
+        assert result.success
+        assert len(adapter._send_calls) == 2
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=delivery.retry" in events
+        assert "attempt=1" in events
+        assert "retryable=true" in events
+        assert "event=delivery.succeeded" in events
+
+    @pytest.mark.asyncio
     async def test_retries_on_connect_error_and_succeeds(self):
         adapter = _StubAdapter()
         adapter._send_results = [
@@ -149,7 +187,7 @@ class TestSendWithRetryNetworkRetry:
         assert len(adapter._send_calls) == 2  # initial + 1 retry
 
     @pytest.mark.asyncio
-    async def test_timeout_not_retried_to_prevent_duplicates(self):
+    async def test_timeout_not_retried_to_prevent_duplicates(self, caplog):
         """ReadTimeout is NOT retried because the request may have reached
         the server — retrying a non-idempotent send risks duplicate delivery.
         It also skips plain-text fallback (timeout is not a formatting issue)."""
@@ -159,7 +197,9 @@ class TestSendWithRetryNetworkRetry:
         ]
         with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             result = await adapter._send_with_retry("chat1", "hello", max_retries=3, base_delay=0)
-        # No retry, no fallback — timeout returns failure immediately
+        events = "\n".join(record.getMessage() for record in caplog.records)
+        assert "event=delivery.failed" in events
+        assert "status=timeout_ambiguous" in events
         mock_sleep.assert_not_called()
         assert not result.success
         assert len(adapter._send_calls) == 1

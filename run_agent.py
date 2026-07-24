@@ -1654,12 +1654,15 @@ class AIAgent:
         keep working.
         """
         from agent.background_review import spawn_background_review_thread
+        from hermes_logging import format_event
         from tools.thread_context import propagate_context_to_thread
+        review_id = uuid.uuid4().hex[:12]
         target, _prompt = spawn_background_review_thread(
             self,
             messages_snapshot,
             review_memory=review_memory,
             review_skills=review_skills,
+            review_id=review_id,
         )
         # Carry the active profile into the review thread so MEMORY.md / skill
         # review writes land in the right profile (#54937).
@@ -1667,6 +1670,16 @@ class AIAgent:
             target=propagate_context_to_thread(target), daemon=True, name="bg-review"
         )
         t.start()
+        logger.info(
+            format_event(
+                "review.spawned",
+                session_id=self.session_id or None,
+                review_id=review_id,
+                review_memory=review_memory,
+                review_skills=review_skills,
+                message_count=len(messages_snapshot),
+            )
+        )
 
     def _build_memory_write_metadata(
         self,
