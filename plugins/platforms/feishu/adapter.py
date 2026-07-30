@@ -55,6 +55,7 @@ import hmac
 import itertools
 import json
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -404,8 +405,14 @@ class FeishuAdapterSettings:
     webhook_path: str
     ws_reconnect_nonce: int = 30
     ws_reconnect_interval: int = 120
-    ws_ping_interval: Optional[int] = None
-    ws_ping_timeout: Optional[int] = None
+    # Transport-level ``websockets`` keepalive. Non-None values arm the
+    # protocol ping/pong so a silently half-open (假活) peer raises
+    # ``ConnectionClosed`` on ``recv()`` and the SDK's own ``_reconnect`` can
+    # self-heal — instead of blocking forever with ``state=connected``. The
+    # lark app-level ping is fire-and-forget with no pong-timeout, so it can
+    # not detect this on its own. See _run_official_feishu_ws_client.
+    ws_ping_interval: Optional[int] = 30
+    ws_ping_timeout: Optional[int] = 30
     admins: frozenset[str] = frozenset()
     default_group_policy: str = ""
     group_rules: Dict[str, FeishuGroupRule] = field(default_factory=dict)
@@ -1308,6 +1315,23 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
 
     original_connect = ws_client_module.websockets.connect
     original_configure = getattr(ws_client, "_configure", None)
+    original_handle_data_frame = getattr(ws_client, "_handle_data_frame", None)
+    original_handle_control_frame = getattr(ws_client, "_handle_control_frame", None)
+
+    async def _handle_data_frame_with_activity(frame: Any) -> Any:
+        # A real inbound EVENT/CARD frame is the only proof the server is still
+        # delivering events, so it — and it alone — refreshes the 假活 idle
+        # clock. Application-level 假活 keeps the transport (and PONG) alive
+        # while event delivery stops; keying the idle check off events is the
+        # only client-side way to detect that.
+        adapter._mark_ws_activity()
+        return await original_handle_data_frame(frame)
+
+    async def _handle_control_frame_with_pong(frame: Any) -> Any:
+        # PING/PONG. Observation only — must NOT touch the idle clock, or a
+        # pong-alive 假活 (the mode seen in production) becomes undetectable.
+        adapter._mark_ws_pong()
+        return await original_handle_control_frame(frame)
 
     def _apply_runtime_ws_overrides() -> None:
         try:
@@ -1335,6 +1359,10 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
     ws_client_module.websockets.connect = _connect_with_overrides
     if original_configure is not None:
         setattr(ws_client, "_configure", _configure_with_overrides)
+    if original_handle_data_frame is not None:
+        setattr(ws_client, "_handle_data_frame", _handle_data_frame_with_activity)
+    if original_handle_control_frame is not None:
+        setattr(ws_client, "_handle_control_frame", _handle_control_frame_with_pong)
     _apply_runtime_ws_overrides()
     try:
         ws_client.start()
@@ -1350,6 +1378,10 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
         ws_client_module.websockets.connect = original_connect
         if original_configure is not None:
             setattr(ws_client, "_configure", original_configure)
+        if original_handle_data_frame is not None:
+            setattr(ws_client, "_handle_data_frame", original_handle_data_frame)
+        if original_handle_control_frame is not None:
+            setattr(ws_client, "_handle_control_frame", original_handle_control_frame)
         pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
         for task in pending:
             task.cancel()
@@ -1451,6 +1483,46 @@ class FeishuAdapter(BasePlatformAdapter):
 
         self._settings = self._load_settings(config.extra or {})
         self._apply_settings(self._settings)
+        # WebSocket liveness watchdog. The lark SDK's recv-exception-driven
+        # auto_reconnect can not see a 假活 (silently non-delivering) long
+        # connection — recv() blocks forever with no exception. Sample the SDK
+        # transport plus a per-frame activity clock and, after consecutive
+        # unhealthy samples, use the retryable-fatal path so GatewayRunner
+        # rebuilds a fresh adapter. Zero on any bound disables the probe
+        # without otherwise changing the adapter lifecycle.
+        self._liveness_interval_seconds = self._liveness_config_float(
+            "ws_liveness_interval_seconds",
+            30.0,
+            env_key="HERMES_FEISHU_LIVENESS_INTERVAL_SECONDS",
+        )
+        self._liveness_failure_threshold = self._liveness_config_int(
+            "ws_liveness_failure_threshold",
+            3,
+            env_key="HERMES_FEISHU_LIVENESS_FAILURE_THRESHOLD",
+        )
+        # Optional event-idle connection refresh. No business EVENTs is
+        # indistinguishable from a healthy quiet bot, so this heuristic is off by
+        # default; transport ping/pong and thread/connection health remain active.
+        # Deployments that observed Feishu's pong-alive/event-stalled failure can
+        # opt in with a conservative profile-specific bound.
+        self._ws_idle_max_seconds = self._liveness_config_float(
+            "ws_idle_max_seconds",
+            0.0,
+            env_key="HERMES_FEISHU_WS_IDLE_MAX_SECONDS",
+        )
+        self._liveness_task: Optional[asyncio.Task] = None
+        self._liveness_notification_task: Optional[asyncio.Task] = None
+        self._ws_reconnected_generation: int = 0
+        # time.monotonic() of the last inbound *data/event* frame. Refreshed by
+        # the wrapped SDK ``_handle_data_frame`` — NOT by control frames (pong).
+        # This is the 假活 idle clock: application-level 假活 keeps the transport
+        # (and PONG) alive while event delivery stops, so keying the idle check
+        # off events is the only way to detect it. 0.0 = not yet armed.
+        self._last_ws_activity_at: float = 0.0
+        # Observation-only: time.monotonic() of the last inbound control frame
+        # (PING/PONG). Never gates recovery — surfaced in liveness samples so a
+        # live 假活 can be classified (pong-alive vs fully-silent) from the logs.
+        self._last_ws_pong_at: float = 0.0
         self._client: Optional[Any] = None
         # Adapter-owned thread pool for blocking Feishu SDK calls. Routing SDK
         # work through this pool (instead of asyncio's shared default executor)
@@ -1599,8 +1671,8 @@ class FeishuAdapter(BasePlatformAdapter):
             ),
             ws_reconnect_nonce=_coerce_required_int(extra.get("ws_reconnect_nonce"), default=30, min_value=0),
             ws_reconnect_interval=_coerce_required_int(extra.get("ws_reconnect_interval"), default=120, min_value=1),
-            ws_ping_interval=_coerce_int(extra.get("ws_ping_interval"), default=None, min_value=1),
-            ws_ping_timeout=_coerce_int(extra.get("ws_ping_timeout"), default=None, min_value=1),
+            ws_ping_interval=_coerce_int(extra.get("ws_ping_interval"), default=30, min_value=1),
+            ws_ping_timeout=_coerce_int(extra.get("ws_ping_timeout"), default=30, min_value=1),
             admins=admins,
             default_group_policy=default_group_policy,
             group_rules=group_rules,
@@ -1763,6 +1835,10 @@ class FeishuAdapter(BasePlatformAdapter):
             await self._connect_with_retry()
             self._mark_connected()
             logger.info("[Feishu] Connected in %s mode (%s)", self._connection_mode, self._domain_name)
+            # The liveness watchdog only applies to the long-lived WebSocket
+            # transport; webhook mode is request/response and has no such loop.
+            if self._connection_mode == "websocket":
+                self._start_liveness_probe()
             return True
         except Exception as exc:
             await self._release_app_lock()
@@ -1774,6 +1850,7 @@ class FeishuAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         """Disconnect from Feishu/Lark."""
         self._running = False
+        await self._cancel_liveness_task()
         await self._cancel_pending_tasks(self._pending_text_batch_tasks)
         await self._cancel_pending_tasks(self._pending_media_batch_tasks)
         self._reset_batch_buffers()
@@ -1878,6 +1955,354 @@ class FeishuAdapter(BasePlatformAdapter):
             pass
         finally:
             self._ws_client = None
+
+    # =========================================================================
+    # WebSocket liveness watchdog (假活 detection + reconnect handoff)
+    # =========================================================================
+
+    def _liveness_config_value(
+        self, key: str, default: Any, *, env_key: Optional[str] = None
+    ) -> Any:
+        """Resolve a liveness value from profile config, env, or default."""
+        extra = self.config.extra if isinstance(getattr(self.config, "extra", None), dict) else {}
+        value = extra.get(key)
+        if value is None and env_key:
+            value = os.getenv(env_key)
+        return default if value is None or value == "" else value
+
+    def _liveness_config_float(
+        self, key: str, default: float, *, env_key: Optional[str] = None
+    ) -> float:
+        """Resolve a finite positive duration; invalid values disable the probe."""
+        try:
+            value = float(self._liveness_config_value(key, default, env_key=env_key))
+        except (TypeError, ValueError):
+            return 0.0
+        return value if math.isfinite(value) and value > 0 else 0.0
+
+    def _liveness_config_int(
+        self, key: str, default: int, *, env_key: Optional[str] = None
+    ) -> int:
+        """Resolve a positive count; invalid values disable the probe."""
+        value = self._liveness_config_value(key, default, env_key=env_key)
+        if isinstance(value, bool):
+            return 0
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    def _mark_ws_activity(self) -> None:
+        """Refresh the 假活 idle clock (called on real DATA/EVENT frames)."""
+        self._last_ws_activity_at = time.monotonic()
+
+    def _mark_ws_pong(self) -> None:
+        """Refresh the observation-only pong clock (called on control frames)."""
+        self._last_ws_pong_at = time.monotonic()
+
+    def _on_ws_reconnecting(self) -> None:
+        """SDK observer: fires on the WS thread when the SDK starts retrying."""
+        logger.warning(
+            format_event(
+                "platform.reconnect.scheduled",
+                platform="feishu",
+                reason="sdk_auto_reconnect",
+            )
+        )
+
+    def _on_ws_reconnected(self) -> None:
+        """SDK observer: connection re-established. Refresh activity so the
+        watchdog does not immediately escalate a just-healed link."""
+        self._ws_reconnected_generation += 1
+        self._mark_ws_activity()
+        logger.info(
+            format_event(
+                "platform.reconnect.result",
+                platform="feishu",
+                success=True,
+                reason="sdk_auto_reconnect",
+            )
+        )
+
+    def _start_liveness_probe(self) -> None:
+        """Start the periodic WebSocket health probe (websocket mode only)."""
+        if self._liveness_interval_seconds <= 0 or self._liveness_failure_threshold <= 0:
+            return
+        if self._liveness_task and not self._liveness_task.done():
+            return
+        now = time.monotonic()
+        self._last_ws_activity_at = now
+        self._last_ws_pong_at = now
+        logger.info(
+            format_event(
+                "platform.liveness.started",
+                platform="feishu",
+                interval_seconds=self._liveness_interval_seconds,
+                idle_max_seconds=self._ws_idle_max_seconds,
+                failure_threshold=self._liveness_failure_threshold,
+            )
+        )
+        self._liveness_task = asyncio.create_task(self._liveness_loop())
+
+    def _read_ws_health(self, ws_client: Any) -> tuple[bool, str]:
+        """Return current WS transport health without any network call.
+
+        Fail-closed: any unexpected error reading transport state means the
+        stream is not a usable event source, not that it is healthy.
+        """
+        try:
+            # The WS bootstrap thread finished/died while we still believe we
+            # are running: no receiver remains even though state=connected.
+            if self._running and self._ws_thread_loop is None:
+                return False, "ws_thread_exited"
+            future = self._ws_future
+            if future is not None and future.done():
+                return False, "ws_thread_exited"
+            if ws_client is None:
+                return False, "no_ws_client"
+            conn = getattr(ws_client, "_conn", None)
+            if conn is None:
+                # SDK is between connections (mid-reconnect) or wedged.
+                return False, "no_connection"
+            # New websockets asyncio API exposes .state/.close_code; the legacy
+            # protocol exposed .open. Read defensively across both shapes.
+            if getattr(conn, "close_code", None) is not None:
+                return False, "socket_closed"
+            state_name = getattr(getattr(conn, "state", None), "name", None)
+            if state_name is not None:
+                if state_name != "OPEN":
+                    return False, "socket_not_open"
+            elif getattr(conn, "open", None) is False:
+                return False, "socket_not_open"
+            # Optional event-idle refresh. An OPEN socket with no business DATA
+            # is not intrinsically unhealthy (the bot may simply be quiet), so
+            # this heuristic only participates when explicitly configured.
+            idle_max = self._ws_idle_max_seconds
+            last = self._last_ws_activity_at
+            if idle_max and idle_max > 0 and last > 0:
+                if (time.monotonic() - last) > idle_max:
+                    return False, "recv_idle"
+            return True, "healthy"
+        except Exception:
+            return False, "health_read_error"
+
+    async def _liveness_loop(self) -> None:
+        """Recover a wedged WebSocket after repeated unhealthy samples.
+
+        Two-tier escalation:
+
+        * ``recv_idle`` — socket is OPEN but no EVENT frames have arrived for
+          ``idle_max`` (application-level 假活: transport + PONG alive, event
+          delivery dead). Re-arm the WS cheaply via the SDK's own reconnect,
+          leaving the adapter/session untouched (sends go over REST, so a WS
+          re-arm never disrupts delivery).
+        * any other reason (thread dead, conn gone, socket closed, read error)
+          — a hard transport failure the SDK can't self-heal, so hand off to
+          the gateway's adapter-rebuild machinery.
+        """
+        interval = self._liveness_interval_seconds
+        threshold = self._liveness_failure_threshold
+        soft_reasons = ("recv_idle",)
+        heartbeat_every = 10  # emit a healthy sample every N probes (~5 min @30s)
+        failures = 0
+        samples = 0
+        while self._running:
+            try:
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                return
+            if not self._running:
+                return
+            try:
+                healthy, reason = self._read_ws_health(self._ws_client)
+            except Exception:
+                # Health sampling must fail closed: an unexpected SDK attribute
+                # change cannot be allowed to kill this watchdog and leave an
+                # apparently-running adapter unrecovered.
+                healthy = False
+                reason = "health_check_error"
+
+            now = time.monotonic()
+            event_idle = round(now - self._last_ws_activity_at, 1) if self._last_ws_activity_at else -1.0
+            pong_idle = round(now - self._last_ws_pong_at, 1) if self._last_ws_pong_at else -1.0
+
+            samples += 1
+            if healthy:
+                failures = 0
+                # Periodic heartbeat proves the watchdog itself is alive and
+                # lets a live 假活 be classified from the logs (event vs pong
+                # idle) even before it trips a threshold.
+                if samples % heartbeat_every == 0:
+                    logger.info(
+                        format_event(
+                            "platform.liveness.sample",
+                            platform="feishu",
+                            healthy=True,
+                            reason=reason,
+                            event_idle_seconds=event_idle,
+                            pong_idle_seconds=pong_idle,
+                        )
+                    )
+                continue
+
+            failures += 1
+            logger.warning(
+                format_event(
+                    "platform.liveness.unhealthy",
+                    platform="feishu",
+                    reason=reason,
+                    failures=failures,
+                    threshold=threshold,
+                    event_idle_seconds=event_idle,
+                    pong_idle_seconds=pong_idle,
+                )
+            )
+            if failures < threshold:
+                continue
+
+            if reason in soft_reasons:
+                # Transport looks alive but events stalled: re-arm the WS via
+                # the SDK. Count this as recovered only after the SDK's
+                # on_reconnected hook confirms a replacement connection. A
+                # failed or timed-out soft recovery must escalate immediately;
+                # otherwise an OPEN-looking stale socket can loop here forever.
+                logger.warning(
+                    "[Feishu] WebSocket event-idle (%s, %.0fs); forcing SDK reconnect",
+                    reason,
+                    event_idle,
+                )
+                recovered = await self._force_ws_reconnect(reason)
+                if recovered:
+                    failures = 0
+                    continue
+                reason = "soft_reconnect_failed"
+
+            logger.error(
+                "[Feishu] WebSocket remained unhealthy (%s); forcing reconnect", reason
+            )
+            self._set_fatal_error(
+                "feishu_websocket_health_stale",
+                f"Feishu WebSocket health check failed: {reason}",
+                retryable=True,
+            )
+            # Notify the runner from a sibling task so the fatal path (which may
+            # await disconnect()) never cancels/awaits this sampler itself.
+            self._liveness_notification_task = asyncio.create_task(
+                self._notify_liveness_fatal_error()
+            )
+            return
+
+    async def _force_ws_reconnect(self, reason: str) -> bool:
+        """Re-arm the WebSocket via the SDK's own reconnect (soft recovery).
+
+        Closes the SDK connection on its WS thread loop; the SDK's
+        ``_receive_message_loop`` then raises on the closed socket and — because
+        ``auto_reconnect`` is enabled — re-establishes a fresh connection,
+        firing our ``on_reconnecting``/``on_reconnected`` hooks. Return true
+        only after that success hook fires; merely completing ``_disconnect``
+        does not prove event delivery was restored.
+        """
+        ws_client = self._ws_client
+        thread_loop = self._ws_thread_loop
+        if ws_client is None or thread_loop is None:
+            return False
+        try:
+            if thread_loop.is_closed():
+                return False
+        except Exception:
+            return False
+        disconnect = getattr(ws_client, "_disconnect", None)
+        if disconnect is None or not callable(disconnect):
+            return False
+
+        # A deliberate liveness recovery should start immediately. The SDK's
+        # random reconnect nonce is useful for organically concurrent outages,
+        # but waiting up to 30s here only widens the user-visible silent window.
+        try:
+            setattr(ws_client, "_reconnect_nonce", 0)
+        except Exception:
+            logger.debug("[Feishu] Could not disable soft-reconnect jitter", exc_info=True)
+
+        generation = self._ws_reconnected_generation
+        logger.warning(
+            format_event(
+                "platform.reconnect.scheduled",
+                platform="feishu",
+                reason=f"liveness_{reason}",
+            )
+        )
+        try:
+            future = asyncio.run_coroutine_threadsafe(disconnect(), thread_loop)
+            await asyncio.wait_for(asyncio.wrap_future(future), timeout=10.0)
+            deadline = asyncio.get_running_loop().time() + 15.0
+            while self._running and self._ws_reconnected_generation == generation:
+                if asyncio.get_running_loop().time() >= deadline:
+                    logger.warning(
+                        "[Feishu] Soft WS reconnect was not confirmed within 15s"
+                    )
+                    return False
+                await asyncio.sleep(0.05)
+            return self._ws_reconnected_generation > generation
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[Feishu] Soft WS reconnect disconnect timed out; escalating to gateway rebuild"
+            )
+            return False
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("[Feishu] Soft WS reconnect failed", exc_info=True)
+            return False
+
+    async def _notify_liveness_fatal_error(self) -> None:
+        """Hand the wedged connection to the gateway reconnect machinery.
+
+        The runner's ``_handle_adapter_fatal_error`` performs the bounded
+        teardown before rebuilding a fresh adapter. Retry one transient handler
+        failure so an already-fatal adapter is not left registered forever with
+        its liveness sampler stopped.
+        """
+        # Drop the self-reference before notifying so a disconnect triggered by
+        # the fatal handler cannot cancel this in-flight task as unrelated.
+        if self._liveness_notification_task is asyncio.current_task():
+            self._liveness_notification_task = None
+        for attempt in range(2):
+            try:
+                await self._notify_fatal_error()
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if attempt == 0:
+                    logger.warning(
+                        "[Feishu] Liveness fatal-error handoff failed; retrying once",
+                        exc_info=True,
+                    )
+                    await asyncio.sleep(0)
+                    continue
+                logger.error(
+                    "[Feishu] Liveness fatal-error handoff failed permanently",
+                    exc_info=True,
+                )
+
+    async def _cancel_liveness_task(self) -> None:
+        """Cancel and await liveness tasks without awaiting the current task."""
+        current = asyncio.current_task()
+        for task_name in ("_liveness_task", "_liveness_notification_task"):
+            task = getattr(self, task_name, None)
+            if task is None:
+                continue
+            if task is current:
+                continue
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.debug("[Feishu] Liveness task shutdown failed", exc_info=True)
+            setattr(self, task_name, None)
 
     async def _stop_webhook_server(self) -> None:
         if self._webhook_runner is None:
@@ -4756,6 +5181,14 @@ class FeishuAdapter(BasePlatformAdapter):
             # See https://github.com/NousResearch/hermes-agent/issues/50656
             extra_ua_tags=["channel"],
         )
+        # Observe the SDK's own reconnect lifecycle: log it and refresh the
+        # activity clock on success so the liveness watchdog does not escalate
+        # a link the SDK just self-healed.
+        try:
+            self._ws_client.on_reconnecting = self._on_ws_reconnecting
+            self._ws_client.on_reconnected = self._on_ws_reconnected
+        except Exception:
+            logger.debug("[Feishu] Could not attach WS reconnect hooks", exc_info=True)
         self._ws_future = loop.run_in_executor(
             None,
             _run_official_feishu_ws_client,

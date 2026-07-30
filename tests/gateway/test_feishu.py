@@ -379,6 +379,11 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
         adapter = FeishuAdapter(PlatformConfig())
+        # This test drives the connect retry/backoff path with a fully mocked
+        # loop and patched asyncio.sleep; the liveness watchdog (started after
+        # a successful connect) is orthogonal here and would otherwise schedule
+        # a task that consumes the patched sleep. Disable it to isolate retry.
+        adapter._liveness_interval_seconds = 0
         ws_client = SimpleNamespace()
         sleeps = []
 
@@ -653,8 +658,12 @@ class TestAdapterModule(unittest.TestCase):
             }
         )
 
-        self.assertIsNone(settings.ws_ping_interval)
-        self.assertIsNone(settings.ws_ping_timeout)
+        # Invalid values are ignored in favour of the default. The default is
+        # now 30 (non-None) so the transport-level ping/pong keepalive stays
+        # armed — this is what lets a 假活 half-open peer be detected and the
+        # SDK self-heal. See FeishuAdapterSettings.ws_ping_interval.
+        self.assertEqual(settings.ws_ping_interval, 30)
+        self.assertEqual(settings.ws_ping_timeout, 30)
 
     def test_runtime_ws_overrides_reapply_after_sdk_configure(self):
         import sys
