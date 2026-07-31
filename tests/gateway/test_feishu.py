@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import tempfile
 import time
 import unittest
@@ -531,7 +532,7 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
         )
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_edit_message_falls_back_to_text_when_post_update_is_rejected(self):
+    def test_edit_message_downgrades_markdown_to_text_for_non_card_message(self):
         from gateway.config import PlatformConfig
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
@@ -541,8 +542,6 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
         class _MessageAPI:
             def update(self, request):
                 captured["calls"].append(request)
-                if len(captured["calls"]) == 1:
-                    return SimpleNamespace(success=lambda: False, code=230001, msg="content format of the post type is incorrect")
                 return SimpleNamespace(success=lambda: True)
 
         adapter._client = SimpleNamespace(
@@ -553,24 +552,23 @@ class TestFeishuAdapterMessaging(unittest.TestCase):
             )
         )
 
-        async def _direct(func, *args, **kwargs):
-            return func(*args, **kwargs)
-
-        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
-            result = asyncio.run(
-                adapter.edit_message(
-                    chat_id="oc_chat",
-                    message_id="om_progress",
-                    content="可以用 **粗体** 和 *斜体*。",
-                )
+        # om_progress was never sent as a card, so it cannot be patched into one.
+        result = asyncio.run(
+            adapter.edit_message(
+                chat_id="oc_chat",
+                message_id="om_progress",
+                content="可以用 **粗体** 和 *斜体*。",
             )
+        )
 
+        # message.update cannot turn a text message into a card, so the markdown
+        # is downgraded to a single plain-text update carrying the raw content.
         self.assertTrue(result.success)
-        self.assertEqual(captured["calls"][0].request_body.msg_type, "post")
-        self.assertEqual(captured["calls"][1].request_body.msg_type, "text")
+        self.assertEqual(len(captured["calls"]), 1)
+        self.assertEqual(captured["calls"][0].request_body.msg_type, "text")
         self.assertEqual(
-            captured["calls"][1].request_body.content,
-            json.dumps({"text": "可以用 粗体 和 斜体。"}, ensure_ascii=False),
+            captured["calls"][0].request_body.content,
+            json.dumps({"text": "可以用 **粗体** 和 *斜体*。"}, ensure_ascii=False),
         )
 
     @patch.dict(os.environ, {}, clear=True)
@@ -2746,7 +2744,7 @@ class TestAdapterBehavior(unittest.TestCase):
         )
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_send_uses_post_for_inline_markdown(self):
+    def test_send_uses_card_for_inline_markdown(self):
         from gateway.config import PlatformConfig
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
@@ -2780,14 +2778,20 @@ class TestAdapterBehavior(unittest.TestCase):
                 )
             )
 
+        # Markdown replies now render as an interactive JSON 2.0 card.
         self.assertTrue(result.success)
-        self.assertEqual(captured["request"].request_body.msg_type, "post")
-        payload = json.loads(captured["request"].request_body.content)
-        elements = payload["zh_cn"]["content"][0]
-        self.assertEqual(elements, [{"tag": "md", "text": "可以用 **粗体** 和 *斜体*。"}])
+        self.assertEqual(captured["request"].request_body.msg_type, "interactive")
+        card = json.loads(captured["request"].request_body.content)
+        self.assertEqual(card["schema"], "2.0")
+        self.assertIs(card["config"]["update_multi"], True)
+        self.assertEqual(
+            card["body"]["elements"][0]["content"], "可以用 **粗体** 和 *斜体*。"
+        )
+        # A card delivery is remembered so streaming edits use patch.
+        self.assertTrue(adapter._is_card_message("om_markdown"))
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_send_splits_fenced_code_blocks_into_separate_post_rows(self):
+    def test_send_uses_card_for_fenced_code_content(self):
         from gateway.config import PlatformConfig
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
@@ -2831,23 +2835,13 @@ class TestAdapterBehavior(unittest.TestCase):
                 )
             )
 
+        # The card markdown component renders fenced code natively — the whole
+        # reply stays in one markdown element (no post-row splitting on send).
         self.assertTrue(result.success)
-        self.assertEqual(captured["request"].request_body.msg_type, "post")
-        payload = json.loads(captured["request"].request_body.content)
-        rows = payload["zh_cn"]["content"]
-        self.assertEqual(
-            rows,
-            [
-                [
-                    {
-                        "tag": "md",
-                        "text": "确认已入库 ✓\n文件路径：`/root/.hermes/profiles/agent_cto/cron/jobs.json`\n**解码后的内容：**",
-                    }
-                ],
-                [{"tag": "md", "text": "```json\n{\"cron\": \"list\"}\n```"}],
-                [{"tag": "md", "text": "后续说明仍应保留。"}],
-            ],
-        )
+        self.assertEqual(captured["request"].request_body.msg_type, "interactive")
+        card = json.loads(captured["request"].request_body.content)
+        self.assertEqual(card["schema"], "2.0")
+        self.assertEqual(card["body"]["elements"][0]["content"], content)
 
     @patch.dict(os.environ, {}, clear=True)
     def test_build_post_payload_keeps_fence_like_code_lines_inside_code_block(self):
@@ -2915,7 +2909,7 @@ class TestAdapterBehavior(unittest.TestCase):
         )
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_send_falls_back_to_text_when_post_payload_is_rejected(self):
+    def test_send_falls_back_to_text_when_card_send_errors(self):
         from gateway.config import PlatformConfig
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
@@ -2925,8 +2919,9 @@ class TestAdapterBehavior(unittest.TestCase):
         class _MessageAPI:
             def create(self, request):
                 captured["calls"].append(request)
-                if len(captured["calls"]) == 1:
-                    raise RuntimeError("content format of the post type is incorrect")
+                # The interactive card send keeps raising; text must land.
+                if request.request_body.msg_type == "interactive":
+                    raise RuntimeError("card boom")
                 return SimpleNamespace(
                     success=lambda: True,
                     data=SimpleNamespace(message_id="om_plain"),
@@ -2943,7 +2938,11 @@ class TestAdapterBehavior(unittest.TestCase):
         async def _direct(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
+        async def _no_sleep(*args, **kwargs):
+            return None
+
+        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct), \
+                patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_no_sleep):
             result = asyncio.run(
                 adapter.send(
                     chat_id="oc_chat",
@@ -2951,16 +2950,18 @@ class TestAdapterBehavior(unittest.TestCase):
                 )
             )
 
+        # Card send raised (after retries) → reply still lands as plain text
+        # carrying the raw markdown so no content is lost.
         self.assertTrue(result.success)
-        self.assertEqual(captured["calls"][0].request_body.msg_type, "post")
-        self.assertEqual(captured["calls"][1].request_body.msg_type, "text")
+        self.assertEqual(captured["calls"][0].request_body.msg_type, "interactive")
+        self.assertEqual(captured["calls"][-1].request_body.msg_type, "text")
         self.assertEqual(
-            captured["calls"][1].request_body.content,
-            json.dumps({"text": "可以用 粗体 和 斜体。"}, ensure_ascii=False),
+            captured["calls"][-1].request_body.content,
+            json.dumps({"text": "可以用 **粗体** 和 *斜体*。"}, ensure_ascii=False),
         )
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_send_falls_back_to_text_when_post_response_is_unsuccessful(self):
+    def test_send_falls_back_to_text_when_card_response_is_unsuccessful(self):
         from gateway.config import PlatformConfig
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
@@ -2970,8 +2971,10 @@ class TestAdapterBehavior(unittest.TestCase):
         class _MessageAPI:
             def create(self, request):
                 captured["calls"].append(request)
-                if len(captured["calls"]) == 1:
-                    return SimpleNamespace(success=lambda: False, code=230001, msg="content format of the post type is incorrect")
+                # The interactive card is rejected at the response level; the
+                # follow-up text send must succeed.
+                if request.request_body.msg_type == "interactive":
+                    return SimpleNamespace(success=lambda: False, code=230001, msg="card rejected")
                 return SimpleNamespace(
                     success=lambda: True,
                     data=SimpleNamespace(message_id="om_plain_response"),
@@ -2997,15 +3000,17 @@ class TestAdapterBehavior(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(captured["calls"][0].request_body.msg_type, "post")
-        self.assertEqual(captured["calls"][1].request_body.msg_type, "text")
+        self.assertEqual(captured["calls"][0].request_body.msg_type, "interactive")
+        self.assertEqual(captured["calls"][-1].request_body.msg_type, "text")
         self.assertEqual(
-            captured["calls"][1].request_body.content,
-            json.dumps({"text": "可以用 粗体 和 斜体。"}, ensure_ascii=False),
+            captured["calls"][-1].request_body.content,
+            json.dumps({"text": "可以用 **粗体** 和 *斜体*。"}, ensure_ascii=False),
         )
+        # A card that never landed must not be remembered for patch-based edits.
+        self.assertFalse(adapter._is_card_message("om_plain_response"))
 
     @patch.dict(os.environ, {}, clear=True)
-    def test_send_uses_post_for_advanced_markdown_lines(self):
+    def test_send_uses_card_for_advanced_markdown_lines(self):
         from gateway.config import PlatformConfig
         from plugins.platforms.feishu.adapter import FeishuAdapter
 
@@ -3040,12 +3045,12 @@ class TestAdapterBehavior(unittest.TestCase):
             )
 
         self.assertTrue(result.success)
-        self.assertEqual(captured["request"].request_body.msg_type, "post")
-        payload = json.loads(captured["request"].request_body.content)
-        rows = payload["zh_cn"]["content"]
+        self.assertEqual(captured["request"].request_body.msg_type, "interactive")
+        card = json.loads(captured["request"].request_body.content)
+        self.assertEqual(card["schema"], "2.0")
         self.assertEqual(
-            rows,
-            [[{"tag": "md", "text": "---\n1. 第一项\n<u>下划线</u>\n~~删除线~~"}]],
+            card["body"]["elements"][0]["content"],
+            "---\n1. 第一项\n<u>下划线</u>\n~~删除线~~",
         )
 
 
@@ -5175,3 +5180,115 @@ class TestChatLockEviction(unittest.TestCase):
                 held.release()
 
         asyncio.run(_run())
+
+
+class TestFeishuCardRendering(unittest.TestCase):
+    """Feishu JSON 2.0 interactive-card rendering for markdown/table replies."""
+
+    def test_build_markdown_card_payload_produces_json2_card(self):
+        from plugins.platforms.feishu.adapter import _build_markdown_card_payload
+
+        content = "## 标题\n\n| 服务 | CPU |\n|---|---:|\n| a | 1m |"
+        payload = json.loads(_build_markdown_card_payload(content))
+
+        # JSON 2.0 card, must declare update_multi so message.patch can update it.
+        self.assertEqual(payload["schema"], "2.0")
+        self.assertIs(payload["config"]["update_multi"], True)
+        elements = payload["body"]["elements"]
+        self.assertEqual(len(elements), 1)
+        self.assertEqual(elements[0]["tag"], "markdown")
+        # Raw markdown (including table pipe syntax) is passed through verbatim
+        # so Feishu's markdown component renders the table.
+        self.assertEqual(elements[0]["content"], content)
+
+    def test_build_markdown_card_payload_splits_when_over_four_tables(self):
+        from plugins.platforms.feishu.adapter import _build_markdown_card_payload
+
+        tbl = "| a | b |\n|---|---|\n| 1 | 2 |"
+        # 5 tables — Feishu caps a single markdown component at 4 tables.
+        content = "\n\n".join(f"### 表{i}\n{tbl}" for i in range(5))
+        payload = json.loads(_build_markdown_card_payload(content))
+        elements = payload["body"]["elements"]
+
+        table_re = re.compile(r"^\|.*\|\n\|[-|: ]+\|", re.MULTILINE)
+        # Split into multiple markdown components, each with at most 4 tables.
+        self.assertGreater(len(elements), 1)
+        for el in elements:
+            self.assertEqual(el["tag"], "markdown")
+            self.assertLessEqual(len(table_re.findall(el["content"])), 4)
+        # No table is lost across the split.
+        total = sum(len(table_re.findall(el["content"])) for el in elements)
+        self.assertEqual(total, 5)
+
+    def _adapter(self):
+        from gateway.config import PlatformConfig
+        from plugins.platforms.feishu.adapter import FeishuAdapter
+
+        return FeishuAdapter(PlatformConfig())
+
+    def test_outbound_payload_uses_card_for_streaming_reply(self):
+        # A streamed assistant reply (expect_edits) becomes an interactive card
+        # even when the current frame is plain text — it may grow a table later,
+        # and a text message cannot be converted to a card mid-stream.
+        msg_type, payload = self._adapter()._build_outbound_payload(
+            "纯文本回复", metadata={"expect_edits": True}
+        )
+        self.assertEqual(msg_type, "interactive")
+        self.assertEqual(json.loads(payload)["schema"], "2.0")
+
+    def test_outbound_payload_uses_card_for_markdown_table(self):
+        # A one-off message (no expect_edits) with a table also goes to a card.
+        content = "| 服务 | CPU |\n|---|---:|\n| a | 1m |"
+        msg_type, payload = self._adapter()._build_outbound_payload(content)
+        self.assertEqual(msg_type, "interactive")
+        self.assertEqual(json.loads(payload)["schema"], "2.0")
+
+    def test_outbound_payload_keeps_plain_progress_as_text(self):
+        # Tool-progress bubbles (no expect_edits, no markdown) stay lightweight text.
+        msg_type, payload = self._adapter()._build_outbound_payload(
+            '📖 read_file: "/tmp/image.png"'
+        )
+        self.assertEqual(msg_type, "text")
+        self.assertEqual(
+            json.loads(payload), {"text": '📖 read_file: "/tmp/image.png"'}
+        )
+
+    def test_edit_message_patches_card_message(self):
+        # A message delivered as an interactive card must be edited via
+        # im.v1.message.patch (message.update rejects cards), and the patched
+        # content is a JSON 2.0 card.
+        adapter = self._adapter()
+        captured = {}
+
+        class _MessageAPI:
+            def patch(self, request):
+                captured["patch"] = request
+                return SimpleNamespace(success=lambda: True)
+
+            def update(self, request):
+                captured["update"] = request
+                return SimpleNamespace(success=lambda: True)
+
+        adapter._client = SimpleNamespace(
+            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
+        )
+        # Mark the message as a card, as send() does after delivering one.
+        adapter._remember_card_message("om_card")
+
+        async def _direct(func, *a, **k):
+            return func(*a, **k)
+
+        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
+            result = asyncio.run(
+                adapter.edit_message(
+                    chat_id="oc_chat",
+                    message_id="om_card",
+                    content="## 报告\n\n| a | b |\n|---|---|\n| 1 | 2 |",
+                )
+            )
+
+        self.assertTrue(result.success)
+        self.assertIn("patch", captured)
+        self.assertNotIn("update", captured)
+        body = captured["patch"].request_body
+        self.assertEqual(json.loads(body.content)["schema"], "2.0")

@@ -102,6 +102,8 @@ try:
         GetMessageRequest,
         GetMessageResourceRequest,
         P2ImMessageMessageReadV1,
+        PatchMessageRequest,
+        PatchMessageRequestBody,
         ReplyMessageRequest,
         ReplyMessageRequestBody,
         UpdateMessageRequest,
@@ -630,6 +632,65 @@ def _build_markdown_post_rows(content: str) -> List[List[Dict[str, str]]]:
 
     _flush_current()
     return rows or [[{"tag": "md", "text": content}]]
+
+
+# Feishu caps a single rich-text (markdown) component at 4 tables; content with
+# more must be split across multiple markdown components in the same card.
+_FEISHU_CARD_MAX_TABLES_PER_MD = 4
+_MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|[-|: ]+\|\s*$")
+
+
+def _split_markdown_by_table_limit(
+    content: str, max_tables: int = _FEISHU_CARD_MAX_TABLES_PER_MD
+) -> List[str]:
+    """Split ``content`` into segments each holding at most ``max_tables`` tables.
+
+    A table starts at a header row (``| ... |``) immediately followed by a
+    separator row (``|---|---|``). Segments are cut just before the table that
+    would exceed the limit, so prose stays attached to the table that follows
+    it. Non-table content is preserved verbatim.
+    """
+    lines = content.split("\n")
+    segments: List[str] = []
+    current: List[str] = []
+    count = 0
+    for i, line in enumerate(lines):
+        is_table_start = (
+            i + 1 < len(lines)
+            and line.strip().startswith("|")
+            and bool(_MARKDOWN_TABLE_SEPARATOR_RE.match(lines[i + 1]))
+        )
+        if is_table_start and count >= max_tables:
+            segments.append("\n".join(current).strip("\n"))
+            current = []
+            count = 0
+        if is_table_start:
+            count += 1
+        current.append(line)
+    if current:
+        segments.append("\n".join(current).strip("\n"))
+    return [seg for seg in segments if seg.strip()] or [content]
+
+
+def _build_markdown_card_payload(content: str) -> str:
+    """Wrap markdown ``content`` as a Feishu JSON 2.0 interactive card.
+
+    Uses the rich-text (markdown) component, which renders standard markdown —
+    including ``|---|`` tables (Feishu client v7.4+), headings, bold, fenced
+    code and dividers. ``config.update_multi`` is mandatory so the card can be
+    updated in place via ``im.v1.message.patch`` during streaming. Content with
+    more than 4 tables is split across multiple markdown components.
+    """
+    elements = [
+        {"tag": "markdown", "content": segment}
+        for segment in _split_markdown_by_table_limit(content)
+    ]
+    card = {
+        "schema": "2.0",
+        "config": {"update_multi": True},
+        "body": {"elements": elements},
+    }
+    return json.dumps(card, ensure_ascii=False)
 
 
 def parse_feishu_post_payload(
@@ -1416,6 +1477,7 @@ def check_feishu_requirements() -> bool:
             CreateMessageRequest, CreateMessageRequestBody,
             GetChatRequest, GetMessageRequest, GetMessageResourceRequest,
             P2ImMessageMessageReadV1,
+            PatchMessageRequest, PatchMessageRequestBody,
             ReplyMessageRequest, ReplyMessageRequestBody,
             UpdateMessageRequest, UpdateMessageRequestBody,
         )
@@ -1440,6 +1502,8 @@ def check_feishu_requirements() -> bool:
             "GetMessageRequest": GetMessageRequest,
             "GetMessageResourceRequest": GetMessageResourceRequest,
             "P2ImMessageMessageReadV1": P2ImMessageMessageReadV1,
+            "PatchMessageRequest": PatchMessageRequest,
+            "PatchMessageRequestBody": PatchMessageRequestBody,
             "ReplyMessageRequest": ReplyMessageRequest,
             "ReplyMessageRequestBody": ReplyMessageRequestBody,
             "UpdateMessageRequest": UpdateMessageRequest,
@@ -1545,6 +1609,13 @@ class FeishuAdapter(BasePlatformAdapter):
         self._seen_message_order: List[str] = []
         self._dedup_state_path = get_hermes_home() / "feishu_seen_message_ids.json"
         self._dedup_lock = threading.Lock()
+        # Track which sent messages are interactive cards so streaming edits use
+        # im.v1.message.patch (message.update rejects cards). See path-1 card
+        # rendering in _build_outbound_payload.
+        self._card_message_ids: Dict[str, float] = {}  # card message_id → remembered_at
+        self._card_message_order: List[str] = []
+        self._card_message_lock = threading.Lock()
+        self._card_message_cache_size = 512
         self._sender_name_cache: Dict[str, tuple[str, float]] = {}  # sender_id → (name, expire_at)
         self._webhook_rate_counts: Dict[str, tuple[int, float]] = {}  # rate_key → (count, window_start)
         self._webhook_anomaly_counts: Dict[str, tuple[int, str, float]] = {}  # ip → (count, last_status, first_seen)
@@ -2331,10 +2402,11 @@ class FeishuAdapter(BasePlatformAdapter):
         formatted = self.format_message(content)
         chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
         last_response = None
+        last_msg_type = "text"
 
         try:
             for chunk in chunks:
-                msg_type, payload = self._build_outbound_payload(chunk)
+                msg_type, payload = self._build_outbound_payload(chunk, metadata)
                 try:
                     response = await self._feishu_send_with_retry(
                         chat_id=chat_id,
@@ -2344,16 +2416,22 @@ class FeishuAdapter(BasePlatformAdapter):
                         metadata=metadata,
                     )
                 except Exception as exc:
-                    if msg_type != "post" or not _POST_CONTENT_INVALID_RE.search(str(exc)):
+                    # Card / post content rejected → fall back to plain text so the
+                    # reply still lands. Raw chunk keeps the content readable.
+                    if msg_type == "interactive":
+                        logger.warning("[Feishu] Interactive card send failed; falling back to plain text: %s", exc)
+                    elif msg_type == "post" and _POST_CONTENT_INVALID_RE.search(str(exc)):
+                        logger.warning("[Feishu] Invalid post payload rejected by API; falling back to plain text")
+                    else:
                         raise
-                    logger.warning("[Feishu] Invalid post payload rejected by API; falling back to plain text")
                     response = await self._feishu_send_with_retry(
                         chat_id=chat_id,
                         msg_type="text",
-                        payload=json.dumps({"text": _strip_markdown_to_plain_text(chunk)}, ensure_ascii=False),
+                        payload=json.dumps({"text": chunk}, ensure_ascii=False),
                         reply_to=reply_to,
                         metadata=metadata,
                     )
+                    msg_type = "text"
                 if (
                     msg_type == "post"
                     and not self._response_succeeded(response)
@@ -2367,9 +2445,25 @@ class FeishuAdapter(BasePlatformAdapter):
                         reply_to=reply_to,
                         metadata=metadata,
                     )
+                    msg_type = "text"
+                if msg_type == "interactive" and not self._response_succeeded(response):
+                    logger.warning("[Feishu] Interactive card rejected by API response; falling back to plain text")
+                    response = await self._feishu_send_with_retry(
+                        chat_id=chat_id,
+                        msg_type="text",
+                        payload=json.dumps({"text": chunk}, ensure_ascii=False),
+                        reply_to=reply_to,
+                        metadata=metadata,
+                    )
+                    msg_type = "text"
                 last_response = response
+                last_msg_type = msg_type
 
-            return self._finalize_send_result(last_response, "send failed")
+            result = self._finalize_send_result(last_response, "send failed")
+            # Remember card deliveries so streaming edits route through patch.
+            if last_msg_type == "interactive" and result.success and result.message_id:
+                self._remember_card_message(result.message_id)
+            return result
         except Exception as exc:
             logger.error("[Feishu] Send error: %s", exc, exc_info=True)
             return SendResult(success=False, error=str(exc))
@@ -2382,26 +2476,38 @@ class FeishuAdapter(BasePlatformAdapter):
         *,
         finalize: bool = False,
     ) -> SendResult:
-        """Edit a previously sent Feishu text/post message."""
+        """Edit a previously sent Feishu message.
+
+        Messages delivered as interactive cards (streamed replies) are updated
+        via ``im.v1.message.patch`` — ``message.update`` only accepts text/post
+        and rejects cards. Text messages keep the legacy update path.
+        """
         if not self._client:
             return SendResult(success=False, error="Not connected")
 
         content = self.format_message(content)
         try:
+            if self._is_card_message(message_id):
+                payload = _build_markdown_card_payload(content)
+                body = self._build_patch_message_body(content=payload)
+                request = self._build_patch_message_request(message_id=message_id, request_body=body)
+                response = await self._run_blocking(self._client.im.v1.message.patch, request)
+                result = self._finalize_send_result(response, "card patch failed")
+                if result.success:
+                    result.message_id = message_id
+                return result
+
+            # Legacy path: the message was not sent as a card. message.update
+            # cannot convert a text message into a card, so a mid-edit markdown
+            # upgrade is downgraded to plain text.
             msg_type, payload = self._build_outbound_payload(content)
+            if msg_type == "interactive":
+                msg_type = "text"
+                payload = json.dumps({"text": content}, ensure_ascii=False)
             body = self._build_update_message_body(msg_type=msg_type, content=payload)
             request = self._build_update_message_request(message_id=message_id, request_body=body)
             response = await self._run_blocking(self._client.im.v1.message.update, request)
             result = self._finalize_send_result(response, "update failed")
-            if not result.success and msg_type == "post" and _POST_CONTENT_INVALID_RE.search(result.error or ""):
-                logger.warning("[Feishu] Invalid post update payload rejected by API; falling back to plain text")
-                fallback_body = self._build_update_message_body(
-                    msg_type="text",
-                    content=json.dumps({"text": _strip_markdown_to_plain_text(content)}, ensure_ascii=False),
-                )
-                fallback_request = self._build_update_message_request(message_id=message_id, request_body=fallback_body)
-                fallback_response = await self._run_blocking(self._client.im.v1.message.update, fallback_request)
-                result = self._finalize_send_result(fallback_response, "update failed")
             if result.success:
                 result.message_id = message_id
             return result
@@ -4965,17 +5071,40 @@ class FeishuAdapter(BasePlatformAdapter):
     # Outbound payload construction and send pipeline
     # =========================================================================
 
-    def _build_outbound_payload(self, content: str) -> tuple[str, str]:
-        # Feishu post-type 'md' elements do not render markdown tables; sending
-        # table content as post causes the message to appear blank on the client.
-        # Force plain text for anything that looks like a markdown table.
-        if _MARKDOWN_TABLE_RE.search(content):
-            text_payload = {"text": content}
-            return "text", json.dumps(text_payload, ensure_ascii=False)
-        if _MARKDOWN_HINT_RE.search(content):
-            return "post", _build_markdown_post_payload(content)
-        text_payload = {"text": content}
-        return "text", json.dumps(text_payload, ensure_ascii=False)
+    def _remember_card_message(self, message_id: str) -> None:
+        """Record that ``message_id`` was delivered as an interactive card, so a
+        later streaming edit routes through ``im.v1.message.patch``."""
+        if not message_id:
+            return
+        with self._card_message_lock:
+            if message_id in self._card_message_ids:
+                return
+            self._card_message_ids[message_id] = time.time()
+            self._card_message_order.append(message_id)
+            while len(self._card_message_order) > self._card_message_cache_size:
+                stale = self._card_message_order.pop(0)
+                self._card_message_ids.pop(stale, None)
+
+    def _is_card_message(self, message_id: str) -> bool:
+        with self._card_message_lock:
+            return message_id in self._card_message_ids
+
+    def _build_outbound_payload(
+        self, content: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> tuple[str, str]:
+        # Path-1 card rendering. Feishu's JSON 2.0 markdown component renders
+        # full markdown (tables, headings, code, dividers) that the legacy text/
+        # post path cannot. A streamed assistant reply (``expect_edits``) always
+        # renders as a card: a table may appear at any point in the stream and a
+        # text message cannot be converted to a card mid-edit. One-off messages
+        # upgrade to a card only when they contain markdown; plain short messages
+        # (tool-progress bubbles) stay lightweight text.
+        wants_card = bool((metadata or {}).get("expect_edits")) or bool(
+            _MARKDOWN_TABLE_RE.search(content) or _MARKDOWN_HINT_RE.search(content)
+        )
+        if wants_card:
+            return "interactive", _build_markdown_card_payload(content)
+        return "text", json.dumps({"text": content}, ensure_ascii=False)
 
     async def _send_uploaded_file_message(
         self,
@@ -5387,6 +5516,24 @@ class FeishuAdapter(BasePlatformAdapter):
         if "UpdateMessageRequest" in globals():
             return (
                 UpdateMessageRequest.builder()
+                .message_id(message_id)
+                .request_body(request_body)
+                .build()
+            )
+        return SimpleNamespace(message_id=message_id, request_body=request_body)
+
+    @staticmethod
+    def _build_patch_message_body(*, content: str) -> Any:
+        # message.patch updates an interactive card; content is the card JSON.
+        if "PatchMessageRequestBody" in globals():
+            return PatchMessageRequestBody.builder().content(content).build()
+        return SimpleNamespace(content=content)
+
+    @staticmethod
+    def _build_patch_message_request(message_id: str, request_body: Any) -> Any:
+        if "PatchMessageRequest" in globals():
+            return (
+                PatchMessageRequest.builder()
                 .message_id(message_id)
                 .request_body(request_body)
                 .build()
