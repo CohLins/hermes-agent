@@ -2911,7 +2911,10 @@ class TestAdapterBehavior(unittest.TestCase):
     @patch.dict(os.environ, {}, clear=True)
     def test_send_falls_back_to_text_when_card_send_errors(self):
         from gateway.config import PlatformConfig
-        from plugins.platforms.feishu.adapter import FeishuAdapter
+        from plugins.platforms.feishu.adapter import (
+            FeishuAdapter,
+            _strip_markdown_to_plain_text,
+        )
 
         adapter = FeishuAdapter(PlatformConfig())
         captured = {"calls": []}
@@ -2950,29 +2953,34 @@ class TestAdapterBehavior(unittest.TestCase):
                 )
             )
 
-        # Card send raised (after retries) → reply still lands as plain text
-        # carrying the raw markdown so no content is lost.
+        # Card send raised (after retries) → reply still lands as plain text,
+        # with markdown stripped so raw ``**``/``*`` is not leaked.
         self.assertTrue(result.success)
         self.assertEqual(captured["calls"][0].request_body.msg_type, "interactive")
         self.assertEqual(captured["calls"][-1].request_body.msg_type, "text")
         self.assertEqual(
             captured["calls"][-1].request_body.content,
-            json.dumps({"text": "可以用 **粗体** 和 *斜体*。"}, ensure_ascii=False),
+            json.dumps({"text": _strip_markdown_to_plain_text("可以用 **粗体** 和 *斜体*。")}, ensure_ascii=False),
         )
 
     @patch.dict(os.environ, {}, clear=True)
     def test_send_falls_back_to_text_when_card_response_is_unsuccessful(self):
         from gateway.config import PlatformConfig
-        from plugins.platforms.feishu.adapter import FeishuAdapter
+        from plugins.platforms.feishu.adapter import (
+            FeishuAdapter,
+            _FEISHU_CARD_RETRY_ATTEMPTS,
+            _strip_markdown_to_plain_text,
+        )
 
         adapter = FeishuAdapter(PlatformConfig())
         captured = {"calls": []}
+        sleeps = []
 
         class _MessageAPI:
             def create(self, request):
                 captured["calls"].append(request)
-                # The interactive card is rejected at the response level; the
-                # follow-up text send must succeed.
+                # The interactive card is always rejected at the response level;
+                # only after exhausting the retry budget must the text send land.
                 if request.request_body.msg_type == "interactive":
                     return SimpleNamespace(success=lambda: False, code=230001, msg="card rejected")
                 return SimpleNamespace(
@@ -2988,26 +2996,90 @@ class TestAdapterBehavior(unittest.TestCase):
             )
         )
 
+        content = "可以用 **粗体** 和 *斜体*。"
+
         async def _direct(func, *args, **kwargs):
             return func(*args, **kwargs)
 
-        with patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct):
+        async def _sleep(delay):
+            sleeps.append(delay)
+
+        with (
+            patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct),
+            patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep),
+        ):
             result = asyncio.run(
                 adapter.send(
                     chat_id="oc_chat",
-                    content="可以用 **粗体** 和 *斜体*。",
+                    content=content,
                 )
             )
 
         self.assertTrue(result.success)
+        # The card is attempted _FEISHU_CARD_RETRY_ATTEMPTS times (with a short
+        # backoff between retries) before downgrading to text.
+        interactive_calls = [c for c in captured["calls"] if c.request_body.msg_type == "interactive"]
+        self.assertEqual(len(interactive_calls), _FEISHU_CARD_RETRY_ATTEMPTS)
+        self.assertEqual(len(sleeps), _FEISHU_CARD_RETRY_ATTEMPTS - 1)
         self.assertEqual(captured["calls"][0].request_body.msg_type, "interactive")
         self.assertEqual(captured["calls"][-1].request_body.msg_type, "text")
+        # The downgrade strips markdown instead of leaking raw ``**``/``*``.
         self.assertEqual(
             captured["calls"][-1].request_body.content,
-            json.dumps({"text": "可以用 **粗体** 和 *斜体*。"}, ensure_ascii=False),
+            json.dumps({"text": _strip_markdown_to_plain_text(content)}, ensure_ascii=False),
         )
         # A card that never landed must not be remembered for patch-based edits.
         self.assertFalse(adapter._is_card_message("om_plain_response"))
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_send_recovers_when_card_succeeds_within_retry_budget(self):
+        from gateway.config import PlatformConfig
+        from plugins.platforms.feishu.adapter import FeishuAdapter
+
+        adapter = FeishuAdapter(PlatformConfig())
+        captured = {"calls": []}
+        sleeps = []
+
+        class _MessageAPI:
+            def create(self, request):
+                captured["calls"].append(request)
+                # The first two card attempts are rejected; the third lands, so
+                # the reply stays a card and never downgrades to text.
+                interactive_so_far = sum(
+                    1 for c in captured["calls"] if c.request_body.msg_type == "interactive"
+                )
+                if request.request_body.msg_type == "interactive" and interactive_so_far < 3:
+                    return SimpleNamespace(success=lambda: False, code=230001, msg="card rejected")
+                return SimpleNamespace(
+                    success=lambda: True,
+                    data=SimpleNamespace(message_id="om_card_ok"),
+                )
+
+        adapter._client = SimpleNamespace(
+            im=SimpleNamespace(v1=SimpleNamespace(message=_MessageAPI()))
+        )
+
+        async def _direct(func, *args, **kwargs):
+            return func(*args, **kwargs)
+
+        async def _sleep(delay):
+            sleeps.append(delay)
+
+        with (
+            patch("plugins.platforms.feishu.adapter.asyncio.to_thread", side_effect=_direct),
+            patch("plugins.platforms.feishu.adapter.asyncio.sleep", side_effect=_sleep),
+        ):
+            result = asyncio.run(
+                adapter.send(chat_id="oc_chat", content="可以用 **粗体** 和 *斜体*。")
+            )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.message_id, "om_card_ok")
+        # Every send stayed on the card path — no text downgrade happened.
+        self.assertEqual(len(captured["calls"]), 3)
+        self.assertTrue(all(c.request_body.msg_type == "interactive" for c in captured["calls"]))
+        # The card that finally landed is remembered so streaming edits patch it.
+        self.assertTrue(adapter._is_card_message("om_card_ok"))
 
     @patch.dict(os.environ, {}, clear=True)
     def test_send_uses_card_for_advanced_markdown_lines(self):

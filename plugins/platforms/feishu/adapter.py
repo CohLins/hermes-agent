@@ -197,6 +197,10 @@ _FEISHU_DOC_UPLOAD_TYPES = {
 _MAX_TEXT_INJECT_BYTES = 100 * 1024
 _FEISHU_CONNECT_ATTEMPTS = 3
 _FEISHU_SEND_ATTEMPTS = 3
+# Interactive cards are occasionally rejected at the API-response level during
+# WebSocket reconnect storms. Retry the card this many times (total attempts,
+# same convention as _FEISHU_SEND_ATTEMPTS) before downgrading to plain text.
+_FEISHU_CARD_RETRY_ATTEMPTS = 3
 _FEISHU_APP_LOCK_SCOPE = "feishu-app-id"
 _DEFAULT_TEXT_BATCH_DELAY_SECONDS = 0.6
 _DEFAULT_TEXT_BATCH_MAX_MESSAGES = 8
@@ -2416,8 +2420,10 @@ class FeishuAdapter(BasePlatformAdapter):
                         metadata=metadata,
                     )
                 except Exception as exc:
-                    # Card / post content rejected → fall back to plain text so the
-                    # reply still lands. Raw chunk keeps the content readable.
+                    # Card / post content rejected (after _feishu_send_with_retry
+                    # already exhausted its exception retries) → fall back to plain
+                    # text so the reply still lands. Strip markdown so the fallback
+                    # reads as clean prose instead of leaking raw ``##``/``**``.
                     if msg_type == "interactive":
                         logger.warning("[Feishu] Interactive card send failed; falling back to plain text: %s", exc)
                     elif msg_type == "post" and _POST_CONTENT_INVALID_RE.search(str(exc)):
@@ -2427,7 +2433,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     response = await self._feishu_send_with_retry(
                         chat_id=chat_id,
                         msg_type="text",
-                        payload=json.dumps({"text": chunk}, ensure_ascii=False),
+                        payload=json.dumps({"text": _strip_markdown_to_plain_text(chunk)}, ensure_ascii=False),
                         reply_to=reply_to,
                         metadata=metadata,
                     )
@@ -2437,7 +2443,11 @@ class FeishuAdapter(BasePlatformAdapter):
                     and not self._response_succeeded(response)
                     and _POST_CONTENT_INVALID_RE.search(str(getattr(response, "msg", "") or ""))
                 ):
-                    logger.warning("[Feishu] Post payload rejected by API response; falling back to plain text")
+                    logger.warning(
+                        "[Feishu] Post payload rejected by API response (code=%s msg=%s); falling back to plain text",
+                        getattr(response, "code", "?"),
+                        getattr(response, "msg", "?"),
+                    )
                     response = await self._feishu_send_with_retry(
                         chat_id=chat_id,
                         msg_type="text",
@@ -2447,15 +2457,45 @@ class FeishuAdapter(BasePlatformAdapter):
                     )
                     msg_type = "text"
                 if msg_type == "interactive" and not self._response_succeeded(response):
-                    logger.warning("[Feishu] Interactive card rejected by API response; falling back to plain text")
-                    response = await self._feishu_send_with_retry(
-                        chat_id=chat_id,
-                        msg_type="text",
-                        payload=json.dumps({"text": chunk}, ensure_ascii=False),
-                        reply_to=reply_to,
-                        metadata=metadata,
-                    )
-                    msg_type = "text"
+                    # Card rejected at the response level (code != 0). This is
+                    # often transient during a reconnect storm, so retry the card
+                    # a few times before downgrading. Log code/msg each time so a
+                    # systematic rejection (permission/schema/client version) is
+                    # diagnosable from the logs.
+                    attempt = 1
+                    while attempt < _FEISHU_CARD_RETRY_ATTEMPTS and not self._response_succeeded(response):
+                        logger.warning(
+                            "[Feishu] Interactive card rejected (code=%s msg=%s); retrying card %d/%d",
+                            getattr(response, "code", "?"),
+                            getattr(response, "msg", "?"),
+                            attempt,
+                            _FEISHU_CARD_RETRY_ATTEMPTS,
+                        )
+                        await asyncio.sleep(0.5 * attempt)
+                        response = await self._feishu_send_with_retry(
+                            chat_id=chat_id,
+                            msg_type="interactive",
+                            payload=payload,
+                            reply_to=reply_to,
+                            metadata=metadata,
+                        )
+                        attempt += 1
+                    if not self._response_succeeded(response):
+                        logger.warning(
+                            "[Feishu] Interactive card still rejected after %d attempts "
+                            "(code=%s msg=%s); falling back to plain text",
+                            _FEISHU_CARD_RETRY_ATTEMPTS,
+                            getattr(response, "code", "?"),
+                            getattr(response, "msg", "?"),
+                        )
+                        response = await self._feishu_send_with_retry(
+                            chat_id=chat_id,
+                            msg_type="text",
+                            payload=json.dumps({"text": _strip_markdown_to_plain_text(chunk)}, ensure_ascii=False),
+                            reply_to=reply_to,
+                            metadata=metadata,
+                        )
+                        msg_type = "text"
                 last_response = response
                 last_msg_type = msg_type
 
@@ -2493,6 +2533,13 @@ class FeishuAdapter(BasePlatformAdapter):
                 request = self._build_patch_message_request(message_id=message_id, request_body=body)
                 response = await self._run_blocking(self._client.im.v1.message.patch, request)
                 result = self._finalize_send_result(response, "card patch failed")
+                if not result.success:
+                    logger.warning(
+                        "[Feishu] Card patch failed for %s (code=%s msg=%s)",
+                        message_id,
+                        getattr(response, "code", "?"),
+                        getattr(response, "msg", "?"),
+                    )
                 if result.success:
                     result.message_id = message_id
                 return result
