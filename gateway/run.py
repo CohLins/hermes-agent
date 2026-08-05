@@ -5668,6 +5668,20 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             holder = await asyncio.to_thread(
                 raw_db.get_compression_lock_holder, str(session_id)
             )
+            # Observability (2026-08-03 incident): the demote log only carried
+            # session_key, so tracing a demote storm back to the compressing
+            # turn (session_id) and its lock holder meant guessing.  Log both
+            # once per session_id, de-duped so a storm can't reintroduce spam.
+            if holder and getattr(self, "_last_compression_demote_sid", None) != session_id:
+                self._last_compression_demote_sid = session_id
+                logger.info(
+                    format_event(
+                        "compression.demote.context",
+                        session_key=session_key,
+                        session_id=str(session_id),
+                        holder=str(holder),
+                    )
+                )
             return bool(holder)
         except (AttributeError, TypeError):
             return False
@@ -5702,6 +5716,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         adapter = self._adapter_for_source(event.source)
         if not adapter:
             return
+        # Count how many times gateway has demoted-and-requeued this event so
+        # the adapter's drain can back off (#56391).  A completion/watch
+        # notification injected while a session is compressing would otherwise
+        # be re-spawned every <1ms until the lock releases — the 2026-08-03
+        # incident logged 15,113 re-spawns in 27s.
+        meta = getattr(event, "metadata", None)
+        if isinstance(meta, dict):
+            meta["gateway_requeue_count"] = meta.get("gateway_requeue_count", 0) + 1
         # #28503 — Previously this called ``merge_pending_message_event``
         # with the default ``merge_text=False``, which silently OVERWROTE
         # the single pending slot when consecutive text messages arrived

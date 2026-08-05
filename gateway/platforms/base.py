@@ -2315,6 +2315,29 @@ def _strip_media_directives(text: str) -> str:
     return _strip_media_tag_directives(text)
 
 
+# --- Compression/subagent demote re-queue backoff (#56391) -------------------
+# A message demoted while the session is busy is re-spawned by the drain loop;
+# if the busy condition persists (e.g. a long context compression holds the
+# lock) it would be re-spawned every <1ms — the 2026-08-03 incident logged
+# 15,113 re-spawns in 27s, pinning a CPU core until a manual SIGINT.  Back off
+# by how many times gateway has already demoted-and-requeued the event.
+_DRAIN_REQUEUE_BASE_DELAY_S = 0.5
+_DRAIN_REQUEUE_MAX_DELAY_S = 5.0
+
+
+def _drain_backoff_delay(requeue_count: int) -> float:
+    """Seconds to wait before re-spawning a drained pending event.
+
+    Returns ``0`` for a fresh event (never demoted) so normal follow-ups run
+    immediately; grows exponentially (0.5s, 1s, 2s, …) once the event has been
+    demoted, capped at 5s so a bounded (300s-TTL) compression can't busy-loop.
+    """
+    if requeue_count <= 0:
+        return 0.0
+    delay = _DRAIN_REQUEUE_BASE_DELAY_S * (2 ** (requeue_count - 1))
+    return min(delay, _DRAIN_REQUEUE_MAX_DELAY_S)
+
+
 class BasePlatformAdapter(ABC):
     """
     Base class for platform adapters.
@@ -5121,6 +5144,49 @@ class BasePlatformAdapter(ABC):
             max_ms = 2500
         return random.uniform(min_ms / 1000.0, max_ms / 1000.0)
 
+    def _spawn_drain_task(self, session_key: str, event: MessageEvent) -> asyncio.Task:
+        """Re-spawn processing for a drained pending event.
+
+        Hands ownership to the new task via ``_session_tasks`` (so stale-lock
+        detection keeps working) exactly like the inline drain sites this
+        replaces.  When the event has already been demoted while the session is
+        busy (compression/subagent in-flight, #56391), it is re-spawned with an
+        exponential backoff (``_drain_backoff_delay``) instead of immediately —
+        without this a completion/watch notification injected during a long
+        compression is re-spawned every <1ms (2026-08-03: 15,113 re-spawns/27s,
+        CPU-pinned until a manual SIGINT).
+        """
+        requeues = 0
+        meta = getattr(event, "metadata", None)
+        if isinstance(meta, dict):
+            requeues = meta.get("gateway_requeue_count", 0) or 0
+        delay = _drain_backoff_delay(requeues)
+        if delay > 0:
+            coro = self._delayed_process_message_background(event, session_key, delay)
+        else:
+            coro = self._process_message_background(event, session_key)
+        task = asyncio.create_task(coro)
+        self._session_tasks[session_key] = task
+        try:
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        except TypeError:
+            # Tests stub create_task() with non-hashable sentinels; tolerate.
+            pass
+        return task
+
+    async def _delayed_process_message_background(
+        self, event: MessageEvent, session_key: str, delay: float
+    ) -> None:
+        """Wait ``delay`` seconds, then process the drained event.
+
+        Spaces out re-injection while the session is still busy (e.g. a long
+        context compression holds the lock) so the drain re-spawn loop can't
+        spin.  Cancellation propagates so gateway shutdown stays responsive.
+        """
+        await asyncio.sleep(delay)
+        await self._process_message_background(event, session_key)
+
     async def _process_message_background(self, event: MessageEvent, session_key: str) -> None:
         """Background task that actually processes the message."""
         # Track delivery outcomes for the processing-complete hook
@@ -5576,25 +5642,13 @@ class BasePlatformAdapter(ABC):
                     _active.clear()
                 await _stop_typing_task()
                 # Spawn a fresh task for the pending message instead of
-                # recursing.  Issue #17758: `await
-                # self._process_message_background(...)` here grew the
-                # call stack one frame per chained follow-up, and under
-                # sustained pending-queue activity the C stack would
-                # exhaust at ~2000 frames and SIGSEGV the process.
-                # Mirror the late-arrival drain pattern below: hand off
-                # to a new task and return so this frame can unwind.
-                drain_task = asyncio.create_task(
-                    self._process_message_background(pending_event, session_key)
-                )
-                # Hand ownership of the session to the drain task so
-                # stale-lock detection keeps working while it runs.
-                self._session_tasks[session_key] = drain_task
-                try:
-                    self._background_tasks.add(drain_task)
-                    drain_task.add_done_callback(self._background_tasks.discard)
-                except TypeError:
-                    # Tests stub create_task() with non-hashable sentinels; tolerate.
-                    pass
+                # recursing (#17758: recursion grew the C stack one frame per
+                # chained follow-up and eventually SIGSEGV'd).  _spawn_drain_task
+                # hands ownership to the new task AND, when the event was demoted
+                # while the session is busy (compression/subagent in-flight,
+                # #56391), backs off so re-injection can't become a <1ms
+                # busy-loop (2026-08-03: 15,113 re-spawns/27s).
+                self._spawn_drain_task(session_key, pending_event)
                 return  # Drain task owns the session now.
                 
         except asyncio.CancelledError:
@@ -5721,18 +5775,10 @@ class BasePlatformAdapter(ABC):
                     _active = self._active_sessions.get(session_key)
                     if _active is not None:
                         _active.clear()
-                    drain_task = asyncio.create_task(
-                        self._process_message_background(late_pending, session_key)
-                    )
-                    # Hand ownership of the session to the drain task so stale-lock
-                    # detection keeps working while it runs.
-                    self._session_tasks[session_key] = drain_task
-                    try:
-                        self._background_tasks.add(drain_task)
-                        drain_task.add_done_callback(self._background_tasks.discard)
-                    except TypeError:
-                        # Tests stub create_task() with non-hashable sentinels; tolerate.
-                        pass
+                    # Back off if the event was demoted while the session is busy
+                    # (#56391) so re-injection can't busy-loop; see
+                    # _spawn_drain_task.
+                    self._spawn_drain_task(session_key, late_pending)
                 # Leave _active_sessions[session_key] populated — the drain
                 # task's own lifecycle will clean it up.
             else:
