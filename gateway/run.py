@@ -13760,13 +13760,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             self._clear_session_env(_session_env_tokens)
 
     def _reset_notice_session_info(self, source: SessionSource) -> str:
-        """Session-info block for the auto-reset notice, profile-scoped.
+        """Session-info block for a reset notice, resolved in its profile scope.
 
-        When multiplexing, resolve model/provider/context inside the profile
-        serving ``source`` — otherwise the banner advertises the base config's
-        model while the session actually runs on the profile's (#59003).
-        Mirrors ``_run_agent``'s gating so single-profile gateways never
-        enter the scope.
+        When multiplexing, resolve model/provider/context and language inside
+        the profile serving ``source`` — otherwise the banner can advertise
+        the base config's model or language while the session runs under a
+        different profile (#59003).
 
         Call via ``asyncio.to_thread`` from async handlers: under the scope,
         resolution can do blocking work (credential refresh, context-length
@@ -13778,6 +13777,43 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             with _profile_runtime_scope(self._resolve_profile_home_for_source(source)):
                 return self._format_session_info()
         return self._format_session_info()
+
+    def _reset_notice_language(self, source: SessionSource) -> str:
+        """Resolve the display language for a reset notice's serving profile."""
+        from agent.i18n import get_language
+
+        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
+            with _profile_runtime_scope(self._resolve_profile_home_for_source(source)):
+                return get_language()
+        return get_language()
+
+    def _telegram_topic_new_header_for_reset(self, source: SessionSource) -> Optional[str]:
+        """Resolve the topic-specific reset header in the serving profile scope."""
+        if getattr(getattr(self, "config", None), "multiplex_profiles", False):
+            with _profile_runtime_scope(self._resolve_profile_home_for_source(source)):
+                return self._telegram_topic_new_header(source)
+        return self._telegram_topic_new_header(source)
+
+    def _format_reset_notice(
+        self,
+        source: SessionSource,
+        header: str,
+        session_info: str,
+        language: str,
+    ) -> str:
+        """Combine reset copy, status, and a language-matched gateway tip."""
+        del source  # Profile scope was used while resolving ``language``.
+        return self._format_reset_notice_parts(header, session_info, language)
+
+    @staticmethod
+    def _format_reset_notice_parts(header: str, session_info: str, language: str) -> str:
+        """Render reset notice parts using the resolved profile language."""
+        from hermes_cli.tips import get_random_gateway_tip
+
+        tip_line = t("gateway.reset.tip", lang=language, tip=get_random_gateway_tip(lang=language))
+        if session_info:
+            return f"{header}\n\n{session_info}{tip_line}"
+        return f"{header}{tip_line}"
 
     def _format_session_info(self) -> str:
         """Resolve current model config and return a formatted info block.
@@ -13872,11 +13908,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
         # Format context source hint
         if config_context_length is not None:
-            ctx_source = "config"
+            ctx_source = t("gateway.session_info.source_config")
         elif context_length == DEFAULT_FALLBACK_CONTEXT:
-            ctx_source = "default — set model.context_length in config to override"
+            ctx_source = t("gateway.session_info.source_default")
         else:
-            ctx_source = "detected"
+            ctx_source = t("gateway.session_info.source_detected")
 
         # Format context length for display
         if context_length >= 1_000_000:
@@ -13887,14 +13923,18 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             ctx_display = str(context_length)
 
         lines = [
-            f"◆ Model: `{model}`",
-            f"◆ Provider: {provider or 'openrouter'}",
-            f"◆ Context: {ctx_display} tokens ({ctx_source})",
+            t("gateway.session_info.model", model=model),
+            t("gateway.session_info.provider", provider=provider or "openrouter"),
+            t(
+                "gateway.session_info.context",
+                context=ctx_display,
+                source=ctx_source,
+            ),
         ]
 
         # Show endpoint for local/custom setups
         if base_url and ("localhost" in base_url or "127.0.0.1" in base_url or "0.0.0.0" in base_url):
-            lines.append(f"◆ Endpoint: {base_url}")
+            lines.append(t("gateway.session_info.endpoint", endpoint=base_url))
 
         return "\n".join(lines)
 

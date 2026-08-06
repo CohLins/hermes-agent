@@ -142,8 +142,24 @@ def test_default_when_nothing_set(monkeypatch):
     monkeypatch.delenv("HERMES_LANGUAGE", raising=False)
     # Force config lookup to return None -- patch the cached reader.
     i18n.reset_language_cache()
-    monkeypatch.setattr(i18n, "_config_language_cached", lambda: None)
+    monkeypatch.setattr(i18n, "_config_language_cached", lambda _path: None)
     assert i18n.get_language() == "en"
+
+
+def test_config_language_cache_is_partitioned_by_config_path(monkeypatch):
+    """Multiplexed profile homes must not share a cached display language."""
+    monkeypatch.delenv("HERMES_LANGUAGE", raising=False)
+    i18n.reset_language_cache()
+    calls = []
+
+    def fake_load_config():
+        calls.append("load")
+        return {"display": {"language": "zh" if len(calls) == 1 else "en"}}
+
+    monkeypatch.setattr("hermes_cli.config.load_config", fake_load_config)
+    assert i18n._config_language_cached("/profiles/zh/config.yaml") == "zh"
+    assert i18n._config_language_cached("/profiles/en/config.yaml") == "en"
+    assert len(calls) == 2
 
 
 # ---------------------------------------------------------------------------

@@ -208,14 +208,13 @@ def _flatten_into(node: Any, prefix: str, out: dict[str, str]) -> None:
     # Non-string, non-dict leaves are ignored -- catalogs are text-only.
 
 
-@lru_cache(maxsize=1)
-def _config_language_cached() -> str | None:
-    """Read ``display.language`` from config.yaml once per process.
+@lru_cache(maxsize=16)
+def _config_language_cached(config_path: str) -> str | None:
+    """Read ``display.language`` from one profile's config.yaml.
 
-    Cached because ``t()`` is called in hot paths (every approval prompt,
-    every gateway reply) and re-reading YAML each call would be wasteful.
-    ``reset_language_cache()`` clears this when config changes at runtime
-    (e.g. after the setup wizard).
+    The config path is part of the cache key because a multiplexed gateway can
+    serve several profile homes in one process. ``reset_language_cache()``
+    clears all profile entries after a config change.
     """
     try:
         from hermes_cli.config import load_config
@@ -224,7 +223,7 @@ def _config_language_cached() -> str | None:
         if lang:
             return _normalize_lang(lang)
     except Exception as exc:
-        logger.debug("Could not read display.language from config: %s", exc)
+        logger.debug("Could not read display.language from config %s: %s", config_path, exc)
     return None
 
 
@@ -244,7 +243,12 @@ def get_language() -> str:
     env_lang = os.environ.get("HERMES_LANGUAGE")
     if env_lang:
         return _normalize_lang(env_lang)
-    cfg_lang = _config_language_cached()
+    try:
+        from hermes_cli.config import get_config_path
+        cfg_lang = _config_language_cached(str(get_config_path()))
+    except Exception as exc:
+        logger.debug("Could not resolve config language: %s", exc)
+        cfg_lang = None
     if cfg_lang:
         return cfg_lang
     return DEFAULT_LANGUAGE

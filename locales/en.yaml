@@ -276,6 +276,15 @@ gateway:
     title_empty_untitled:  "\n⚠️ Title is empty after cleanup — session started untitled."
     tip:                   "\n✦ Tip: {tip}"
 
+  session_info:
+    model:                 "◆ Model: `{model}`"
+    provider:              "◆ Provider: {provider}"
+    context:               "◆ Context: {context} tokens ({source})"
+    endpoint:              "◆ Endpoint: {endpoint}"
+    source_config:         "config"
+    source_default:        "default — set model.context_length in config to override"
+    source_detected:       "detected"
+
   restart:
     in_progress:           "⏳ Gateway restart already in progress..."
     restarting:            "♻ Restarting gateway. If you aren't notified within 60 seconds, restart from the console with `hermes gateway restart`."

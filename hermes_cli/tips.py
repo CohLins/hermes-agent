@@ -2,6 +2,33 @@
 
 import random
 
+from agent.i18n import get_language
+
+
+# Chinese reset tips deliberately remain compact, curated corpora instead of
+# duplicating the full English discovery catalog.  Gateway tips only mention
+# commands available in chat; CLI tips may additionally describe terminal-only
+# interactions.
+ZH_GATEWAY_TIPS = [
+    "使用 `/model` 可在当前会话切换模型；加上 `--global` 可保存为默认模型。",
+    "使用 `/new` 或 `/reset` 开启新会话，当前会话记录仍可通过 `/resume` 找回。",
+    "使用 `/status` 查看当前模型、上下文用量和网关状态。",
+    "使用 `/help` 查看可用命令；使用 `/commands` 浏览已安装的技能命令。",
+    "使用 `/title <名称>` 为会话命名，之后可通过 `/resume <名称>` 恢复。",
+    "使用 `/background <任务>` 在独立会话运行耗时任务，同时继续当前对话。",
+    "使用 `/usage` 查看本次会话的 Token 用量、费用和持续时间。",
+    "使用 `/profile` 查看当前生效的 profile 与其目录。",
+    "使用 `/reasoning show` 查看当前推理设置，使用 `/reasoning high` 调高推理强度。",
+]
+ZH_CLI_TIPS = [
+    *ZH_GATEWAY_TIPS,
+    "使用 `/rollback` 查看文件检查点，并在需要时恢复 Agent 修改的文件。",
+    "使用 `/tools` 查看或临时调整当前会话启用的工具。",
+    "输入 `@` 可触发文件路径补全；`@file:路径` 可将文件内容附加到消息中。",
+]
+# Backward-compatible public name for callers that need the Chinese CLI pool.
+ZH_TIPS = ZH_CLI_TIPS
+
 
 # ---------------------------------------------------------------------------
 # Tip corpus — one-liners covering slash commands, CLI flags, config,
@@ -475,11 +502,32 @@ TIPS = [
 ]
 
 
-def get_random_tip(exclude_recent: int = 0) -> str:
-    """Return a random tip string.
+def _tip_pool(lang: str | None) -> list[str]:
+    """Select a tip corpus without changing the i18n fallback contract."""
+    active_lang = (lang or get_language()).strip().lower()
+    if active_lang in {"zh", "chinese", "mandarin", "zh-cn", "zh-hans", "zh-sg"}:
+        return ZH_CLI_TIPS
+    return TIPS
+
+
+def get_random_tip(exclude_recent: int = 0, *, lang: str | None = None) -> str:
+    """Return a CLI-startup tip for the requested or active language.
+
+    The full discovery corpus is currently English. Simplified Chinese uses a
+    curated Chinese pool; other locales retain the existing English fallback.
 
     Args:
         exclude_recent: not used currently; reserved for future
             deduplication across sessions.
+        lang: optional language code/alias; defaults to the active i18n
+            language resolved from environment and config.
     """
+    return random.choice(_tip_pool(lang))
+
+
+def get_random_gateway_tip(*, lang: str | None = None) -> str:
+    """Return a chat-safe reset tip for the requested or active language."""
+    active_lang = (lang or get_language()).strip().lower()
+    if active_lang in {"zh", "chinese", "mandarin", "zh-cn", "zh-hans", "zh-sg"}:
+        return random.choice(ZH_GATEWAY_TIPS)
     return random.choice(TIPS)

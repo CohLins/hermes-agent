@@ -12,6 +12,12 @@ def runner():
     return GatewayRunner.__new__(GatewayRunner)
 
 
+@pytest.fixture(autouse=True)
+def _english_session_info(monkeypatch):
+    """Keep legacy session-info assertions independent of user config."""
+    monkeypatch.setenv("HERMES_LANGUAGE", "en")
+
+
 def _patch_info(tmp_path, config_yaml, model, runtime):
     """Return a context-manager stack that patches _format_session_info deps."""
     cfg_path = tmp_path / "config.yaml"
@@ -87,8 +93,9 @@ class TestFormatSessionInfo:
             info = runner._format_session_info()
         assert "1.0M" in info
 
-    def test_missing_config(self, runner, tmp_path):
+    def test_missing_config(self, runner, tmp_path, monkeypatch):
         """No config.yaml should not crash."""
+        monkeypatch.setenv("HERMES_LANGUAGE", "en")
         p1, p2, p3 = _patch_info(tmp_path, None,  # don't create config
                                   "anthropic/claude-sonnet-4.6",
                                   {"provider": "openrouter", "base_url": "", "api_key": ""})
@@ -96,6 +103,29 @@ class TestFormatSessionInfo:
             info = runner._format_session_info()
         assert "Model" in info
         assert "Context" in info
+
+    def test_chinese_localizes_static_labels(self, runner, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_LANGUAGE", "zh-CN")
+        p1, p2, p3 = _patch_info(
+            tmp_path,
+            "model:\n  default: test-model\n  provider: custom\n  context_length: 32768\n",
+            "test-model",
+            {"provider": "custom", "base_url": "", "api_key": ""},
+        )
+        with p1, p2, p3:
+            info = runner._format_session_info()
+        assert "模型： `test-model`" in info
+        assert "提供方： custom" in info
+        assert "上下文： 32K 令牌（配置）" in info
+        assert "Model:" not in info
+        assert "Provider:" not in info
+        assert "Context:" not in info
+
+    def test_reset_notice_uses_resolved_language_for_tip(self, runner):
+        notice = runner._format_reset_notice_parts("标题", "状态", "zh")
+        assert notice.startswith("标题\n\n状态\n✦ 提示：")
+        assert "使用 `/" in notice
+        assert "✦ Tip:" not in notice
 
     def test_runtime_resolution_failure_doesnt_crash(self, runner, tmp_path):
         """If runtime resolution raises, should still produce output."""
