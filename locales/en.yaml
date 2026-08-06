@@ -28,6 +28,14 @@ approval:
   denied:          "      ✗ Denied"
   cancelled:       "      ✗ Cancelled"
   blocklist_message: "This command is on the unconditional blocklist and cannot be approved."
+  chat_dangerous_header: "⚠️ **Dangerous command requires approval:**"
+  chat_smart_deny_header: "⚠️ **Smart DENY — owner override for one operation:**"
+  chat_approve_once: "Reply `{prefix}approve` to execute this one operation"
+  chat_approve_session: "`{prefix}approve session` to approve this pattern for the session"
+  chat_approve_always: "`{prefix}approve always` to approve permanently"
+  chat_deny: "`{prefix}deny` to cancel"
+  chat_reason_label: "Reason:"
+  chat_or: "or"
 
 gateway:
   # Messenger replies to slash commands and implicit state changes.

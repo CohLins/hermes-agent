@@ -185,6 +185,21 @@ def test_t_missing_key_in_non_english_falls_back_to_english(tmp_path, monkeypatc
         i18n.reset_language_cache()
 
 
+def test_t_can_use_explicit_chinese_fallback(tmp_path, monkeypatch):
+    """A caller can require Chinese before the normal English fallback."""
+    fake_locales = tmp_path / "locales"
+    fake_locales.mkdir()
+    (fake_locales / "en.yaml").write_text("foo: English Foo\n", encoding="utf-8")
+    (fake_locales / "zh.yaml").write_text("foo: 中文兜底\n", encoding="utf-8")
+    (fake_locales / "ja.yaml").write_text("# intentionally empty\n", encoding="utf-8")
+    monkeypatch.setattr(i18n, "_locales_dir", lambda: fake_locales)
+    i18n.reset_language_cache()
+    try:
+        assert i18n.t("foo", lang="ja", fallback_lang="zh") == "中文兜底"
+    finally:
+        i18n.reset_language_cache()
+
+
 def test_t_unknown_language_uses_english():
     """Unknown lang codes normalize to English, not to a key-path fallback."""
     assert i18n.t("approval.denied", lang="klingon") == i18n.t("approval.denied", lang="en")

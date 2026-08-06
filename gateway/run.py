@@ -364,21 +364,26 @@ def _format_exec_approval_fallback(
 ) -> str:
     """Render the text fallback from approval capabilities, not platform names."""
     cmd_preview = command[:200] + "..." if len(command) > 200 else command
-    heading = "⚠️ **Dangerous command requires approval:**"
-    if smart_denied:
-        heading = "⚠️ **Smart DENY — owner override for one operation:**"
+    heading = t(
+        "approval.chat_smart_deny_header" if smart_denied else "approval.chat_dangerous_header",
+        fallback_lang="zh",
+    )
 
-    choices = [f"Reply `{command_prefix}approve` to execute this one operation"]
+    choices = [t("approval.chat_approve_once", prefix=command_prefix, fallback_lang="zh")]
     if not smart_denied:
         choices.append(
-            f"`{command_prefix}approve session` to approve this pattern for the session"
+            t("approval.chat_approve_session", prefix=command_prefix, fallback_lang="zh")
         )
         if allow_permanent:
-            choices.append(f"`{command_prefix}approve always` to approve permanently")
-    choices.append(f"`{command_prefix}deny` to cancel")
+            choices.append(
+                t("approval.chat_approve_always", prefix=command_prefix, fallback_lang="zh")
+            )
+    choices.append(t("approval.chat_deny", prefix=command_prefix, fallback_lang="zh"))
     return (
-        f"{heading}\n```\n{cmd_preview}\n```\nReason: {description}\n\n"
-        + ", ".join(choices[:-1]) + f", or {choices[-1]}."
+        f"{heading}\n```\n{cmd_preview}\n```\n"
+        f"{t('approval.chat_reason_label', fallback_lang='zh')} {description}\n\n"
+        + ", ".join(choices[:-1])
+        + f", {t('approval.chat_or', fallback_lang='zh')} {choices[-1]}."
     )
 
 

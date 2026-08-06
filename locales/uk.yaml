@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ Відхилено"
   cancelled:       "      ✗ Скасовано"
   blocklist_message: "Ця команда є в безумовному списку блокування, її не можна схвалити."
+  chat_dangerous_header: "⚠️ **Небезпечна команда потребує схвалення:**"
+  chat_smart_deny_header: "⚠️ **Розумна ВІДМОВА — дозвіл власника для однієї операції:**"
+  chat_approve_once: "Відповідайте `{prefix}approve`, щоб виконати цю операцію один раз"
+  chat_approve_session: "`{prefix}approve session`, щоб дозволити цей шаблон на час сеансу"
+  chat_approve_always: "`{prefix}approve always`, щоб дозволити назавжди"
+  chat_deny: "`{prefix}deny`, щоб скасувати"
+  chat_reason_label: "Причина:"
+  chat_or: "або"
 
 gateway:
   approval_expired: "⚠️ Час схвалення минув (агент більше не очікує). Попросіть агента спробувати ще раз."

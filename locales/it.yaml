@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ Negato"
   cancelled:       "      ✗ Annullato"
   blocklist_message: "Questo comando è nella lista di blocco incondizionata e non può essere approvato."
+  chat_dangerous_header: "⚠️ **Il comando pericoloso richiede approvazione:**"
+  chat_smart_deny_header: "⚠️ **NEGAZIONE intelligente — deroga del proprietario per un'operazione:**"
+  chat_approve_once: "Rispondi `{prefix}approve` per eseguire questa operazione una volta"
+  chat_approve_session: "`{prefix}approve session` per approvare questo modello per la sessione"
+  chat_approve_always: "`{prefix}approve always` per approvare permanentemente"
+  chat_deny: "`{prefix}deny` per annullare"
+  chat_reason_label: "Motivo:"
+  chat_or: "oppure"
 
 gateway:
   approval_expired: "⚠️ Approvazione scaduta (l'agente non è più in attesa). Chiedi all'agente di riprovare."

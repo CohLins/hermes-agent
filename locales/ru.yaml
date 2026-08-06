@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ Отклонено"
   cancelled:       "      ✗ Отменено"
   blocklist_message: "Эта команда находится в безусловном списке блокировки и не может быть одобрена."
+  chat_dangerous_header: "⚠️ **Опасная команда требует одобрения:**"
+  chat_smart_deny_header: "⚠️ **Умный ОТКАЗ — разрешение владельца для одной операции:**"
+  chat_approve_once: "Ответьте `{prefix}approve`, чтобы выполнить эту операцию один раз"
+  chat_approve_session: "`{prefix}approve session`, чтобы разрешить этот шаблон на время сеанса"
+  chat_approve_always: "`{prefix}approve always`, чтобы разрешить навсегда"
+  chat_deny: "`{prefix}deny`, чтобы отменить"
+  chat_reason_label: "Причина:"
+  chat_or: "или"
 
 gateway:
   approval_expired: "⚠️ Срок одобрения истёк (агент больше не ожидает). Попросите агента повторить попытку."

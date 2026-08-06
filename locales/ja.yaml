@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ 拒否しました"
   cancelled:       "      ✗ キャンセルしました"
   blocklist_message: "このコマンドは無条件ブロックリストに含まれており、承認できません。"
+  chat_dangerous_header: "⚠️ **危険なコマンドには承認が必要です：**"
+  chat_smart_deny_header: "⚠️ **スマート拒否 — 1 回の操作に対する所有者の上書き：**"
+  chat_approve_once: "`{prefix}approve` と返信して、この操作を 1 回実行"
+  chat_approve_session: "`{prefix}approve session` で、このパターンをセッション中許可"
+  chat_approve_always: "`{prefix}approve always` で、永続的に許可"
+  chat_deny: "`{prefix}deny` でキャンセル"
+  chat_reason_label: "理由："
+  chat_or: "または"
 
 gateway:
   approval_expired: "⚠️ 承認の有効期限が切れました（エージェントはもう待機していません）。エージェントに再試行を依頼してください。"

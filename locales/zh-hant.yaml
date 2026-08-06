@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ 已拒絕"
   cancelled:       "      ✗ 已取消"
   blocklist_message: "此指令位於無條件封鎖清單中，無法被批准。"
+  chat_dangerous_header: "⚠️ **危險指令需要批准：**"
+  chat_smart_deny_header: "⚠️ **智慧拒絕——擁有者允許執行一次：**"
+  chat_approve_once: "回覆 `{prefix}approve` 執行這一次操作"
+  chat_approve_session: "回覆 `{prefix}approve session` 在本次工作階段內允許此模式"
+  chat_approve_always: "回覆 `{prefix}approve always` 永久允許此模式"
+  chat_deny: "回覆 `{prefix}deny` 取消操作"
+  chat_reason_label: "原因："
+  chat_or: "或"
 
 gateway:
   approval_expired: "⚠️ 批准已逾期（代理不再等待）。請讓代理重試。"

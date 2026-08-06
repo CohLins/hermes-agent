@@ -18,6 +18,7 @@ Usage::
     print(t("approval.choose_long"))                       # current lang
     print(t("gateway.draining", count=3))                  # {count} formatted
     print(t("approval.choose_long", lang="zh"))            # explicit override
+    print(t("approval.chat_deny", fallback_lang="zh"))     # Chinese fallback
 
 Language resolution order:
     1. Explicit ``lang=`` argument passed to :func:`t`
@@ -249,7 +250,13 @@ def get_language() -> str:
     return DEFAULT_LANGUAGE
 
 
-def t(key: str, lang: str | None = None, **format_kwargs: Any) -> str:
+def t(
+    key: str,
+    lang: str | None = None,
+    *,
+    fallback_lang: str | None = None,
+    **format_kwargs: Any,
+) -> str:
     """Translate a dotted key to the active language.
 
     Parameters
@@ -258,18 +265,26 @@ def t(key: str, lang: str | None = None, **format_kwargs: Any) -> str:
         Dotted path into the catalog, e.g. ``"approval.choose_long"``.
     lang
         Explicit language override.  Takes precedence over env + config.
+    fallback_lang
+        Optional language catalog checked after the target language and before
+        English.  Use for messages whose product contract requires a specific
+        non-English fallback without changing the global English fallback.
     **format_kwargs
         ``str.format`` substitution arguments (``t("gateway.drain", count=3)``
         expects a catalog entry with a ``{count}`` placeholder).
 
     Returns
     -------
-    The translated string, or the English fallback if the key is missing in
-    the target language, or the bare key if English is also missing.
+    The translated string, an optional language fallback, then the English
+    fallback; returns the bare key only when no catalog defines it.
     """
     target = _normalize_lang(lang) if lang else get_language()
     catalog = _load_catalog(target)
     value = catalog.get(key)
+
+    fallback = _normalize_lang(fallback_lang) if fallback_lang else None
+    if value is None and fallback and fallback != target:
+        value = _load_catalog(fallback).get(key)
 
     if value is None and target != DEFAULT_LANGUAGE:
         # Fall through to English rather than showing a key path to the user.

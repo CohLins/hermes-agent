@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ Elutasítva"
   cancelled:       "      ✗ Megszakítva"
   blocklist_message: "Ez a parancs a feltétel nélküli tiltólistán van, és nem hagyható jóvá."
+  chat_dangerous_header: "⚠️ **A veszélyes parancs jóváhagyást igényel:**"
+  chat_smart_deny_header: "⚠️ **Intelligens ELUTASÍTÁS — tulajdonosi felülbírálás egy művelethez:**"
+  chat_approve_once: "Válaszolj `{prefix}approve` paranccsal a művelet egyszeri végrehajtásához"
+  chat_approve_session: "`{prefix}approve session` a minta munkamenetre szóló jóváhagyásához"
+  chat_approve_always: "`{prefix}approve always` az állandó jóváhagyáshoz"
+  chat_deny: "`{prefix}deny` a megszakításhoz"
+  chat_reason_label: "Indok:"
+  chat_or: "vagy"
 
 gateway:
   approval_expired: "⚠️ A jóváhagyás lejárt (az ügynök már nem vár). Kérd meg az ügynököt, hogy próbálja újra."

@@ -22,6 +22,14 @@ approval:
   denied:          "      ✗ Diúltaithe"
   cancelled:       "      ✗ Cealaithe"
   blocklist_message: "Tá an t-ordú seo ar an liosta cosc gan choinníoll agus ní féidir é a cheadú."
+  chat_dangerous_header: "⚠️ **Teastaíonn cead don ordú contúirteach:**"
+  chat_smart_deny_header: "⚠️ **DIÚLTÚ cliste — sárú úinéara d'oibríocht amháin:**"
+  chat_approve_once: "Freagair `{prefix}approve` chun an oibríocht seo a rith uair amháin"
+  chat_approve_session: "`{prefix}approve session` chun an patrún seo a cheadú don seisiún"
+  chat_approve_always: "`{prefix}approve always` chun cead buan a thabhairt"
+  chat_deny: "`{prefix}deny` chun cealú"
+  chat_reason_label: "Cúis:"
+  chat_or: "nó"
 
 gateway:
   approval_expired: "⚠️ Tá an cead imithe in éag (níl an gníomhaire ag fanacht níos mó). Iarr ar an ngníomhaire iarracht eile a dhéanamh."

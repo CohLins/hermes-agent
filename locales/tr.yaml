@@ -18,6 +18,14 @@ approval:
   denied:          "      ✗ Reddedildi"
   cancelled:       "      ✗ İptal edildi"
   blocklist_message: "Bu komut koşulsuz engelleme listesinde ve onaylanamaz."
+  chat_dangerous_header: "⚠️ **Tehlikeli komut için onay gerekiyor:**"
+  chat_smart_deny_header: "⚠️ **Akıllı RED — tek işlem için sahip geçersiz kılması:**"
+  chat_approve_once: "Bu işlemi bir kez çalıştırmak için `{prefix}approve` yanıtını verin"
+  chat_approve_session: "Bu kalıbı oturum boyunca onaylamak için `{prefix}approve session`"
+  chat_approve_always: "Kalıcı olarak onaylamak için `{prefix}approve always`"
+  chat_deny: "İptal etmek için `{prefix}deny`"
+  chat_reason_label: "Neden:"
+  chat_or: "veya"
 
 gateway:
   approval_expired: "⚠️ Onay süresi doldu (ajan artık beklemiyor). Ajanın tekrar denemesini isteyin."

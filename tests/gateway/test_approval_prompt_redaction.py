@@ -154,9 +154,10 @@ class TestApprovalCommandWiring:
 
 
 class TestApprovalTextFallbackContract:
-    def test_smart_deny_only_advertises_one_operation(self):
+    def test_smart_deny_only_advertises_one_operation(self, monkeypatch):
         from gateway.run import _format_exec_approval_fallback
 
+        monkeypatch.setenv("HERMES_LANGUAGE", "en")
         text = _format_exec_approval_fallback(
             "rm -rf /", "dangerous deletion", "/",
             allow_permanent=False, smart_denied=True,
@@ -167,9 +168,25 @@ class TestApprovalTextFallbackContract:
         assert "approve session" not in text
         assert "approve always" not in text
 
-    def test_non_smart_restriction_preserves_session_choice(self):
+    def test_chinese_text_is_used_for_weixin_fallback(self, monkeypatch):
         from gateway.run import _format_exec_approval_fallback
 
+        monkeypatch.setenv("HERMES_LANGUAGE", "zh-CN")
+        text = _format_exec_approval_fallback(
+            "rm -rf /", "危险删除", "/",
+            allow_permanent=True, smart_denied=False,
+        )
+        assert "危险命令需要批准" in text
+        assert "原因： 危险删除" in text
+        assert "回复 `/approve` 执行这一次操作" in text
+        assert "`/approve session`" in text
+        assert "`/approve always`" in text
+        assert "`/deny`" in text
+
+    def test_non_smart_restriction_preserves_session_choice(self, monkeypatch):
+        from gateway.run import _format_exec_approval_fallback
+
+        monkeypatch.setenv("HERMES_LANGUAGE", "en")
         text = _format_exec_approval_fallback(
             "curl https://example.test", "content warning", "!",
             allow_permanent=False, smart_denied=False,
@@ -177,9 +194,10 @@ class TestApprovalTextFallbackContract:
         assert "`!approve session`" in text
         assert "approve always" not in text
 
-    def test_manual_prompt_preserves_all_choices(self):
+    def test_manual_prompt_preserves_all_choices(self, monkeypatch):
         from gateway.run import _format_exec_approval_fallback
 
+        monkeypatch.setenv("HERMES_LANGUAGE", "en")
         text = _format_exec_approval_fallback(
             "rm -rf /", "dangerous deletion", "/",
             allow_permanent=True, smart_denied=False,
