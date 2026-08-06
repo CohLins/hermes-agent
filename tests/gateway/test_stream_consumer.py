@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from gateway.platforms.base import AdapterShuttingDownError
 from gateway.stream_consumer import GatewayStreamConsumer, StreamConsumerConfig
 
 
@@ -23,6 +24,102 @@ def test_stream_send_metadata_carries_original_reply_anchor():
         "reply_to_message_id": "456",
         "notify": True,
     }
+
+
+# ── adapter-swap resilience (reconnect split-brain) ──────────────────────────
+
+
+class TestAdapterSwapRetry:
+    """A mid-turn reconnect rebuilds the platform adapter and installs a fresh
+    instance for receiving, tearing down the one the stream consumer was built
+    with (its SDK executor is now dead). The consumer must re-resolve the live
+    adapter via ``resolve_adapter`` and retry the outbound op there instead of
+    failing on the stale instance."""
+
+    @staticmethod
+    def _ok(message_id="m1"):
+        return SimpleNamespace(success=True, message_id=message_id)
+
+    @staticmethod
+    def _fail():
+        return SimpleNamespace(success=False, message_id=None)
+
+    @pytest.mark.asyncio
+    async def test_edit_retries_on_live_adapter_after_failed_result(self):
+        dead = MagicMock()
+        dead.edit_message = AsyncMock(return_value=self._fail())
+        live = MagicMock()
+        live.edit_message = AsyncMock(return_value=self._ok())
+        consumer = GatewayStreamConsumer(
+            adapter=dead, chat_id="c", resolve_adapter=lambda: live
+        )
+
+        result = await consumer._edit_message(message_id="m1", content="hi")
+
+        assert result.success is True
+        assert consumer.adapter is live  # rebound to the live instance
+        dead.edit_message.assert_awaited_once()
+        live.edit_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_edit_retries_when_dead_adapter_raises(self):
+        dead = MagicMock()
+        dead.edit_message = AsyncMock(
+            side_effect=AdapterShuttingDownError("shutting down")
+        )
+        live = MagicMock()
+        live.edit_message = AsyncMock(return_value=self._ok())
+        consumer = GatewayStreamConsumer(
+            adapter=dead, chat_id="c", resolve_adapter=lambda: live
+        )
+
+        result = await consumer._edit_message(message_id="m1", content="hi")
+
+        assert result.success is True
+        assert consumer.adapter is live
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_resolver_yields_same_adapter(self):
+        """A normal failure (no swap) must not double-send: the resolver
+        returns the same instance, so there is nothing new to retry on."""
+        dead = MagicMock()
+        dead.edit_message = AsyncMock(return_value=self._fail())
+        consumer = GatewayStreamConsumer(
+            adapter=dead, chat_id="c", resolve_adapter=lambda: dead
+        )
+
+        result = await consumer._edit_message(message_id="m1", content="hi")
+
+        assert result.success is False
+        dead.edit_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_no_resolver_means_no_retry(self):
+        dead = MagicMock()
+        dead.edit_message = AsyncMock(return_value=self._fail())
+        consumer = GatewayStreamConsumer(adapter=dead, chat_id="c")
+
+        result = await consumer._edit_message(message_id="m1", content="hi")
+
+        assert result.success is False
+        dead.edit_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_new_chunk_send_retries_on_live_adapter(self):
+        dead = MagicMock()
+        dead.send = AsyncMock(return_value=self._fail())
+        live = MagicMock()
+        live.send = AsyncMock(return_value=self._ok("m9"))
+        consumer = GatewayStreamConsumer(
+            adapter=dead, chat_id="c", resolve_adapter=lambda: live
+        )
+
+        msg_id = await consumer._send_new_chunk("hello world", reply_to_id=None)
+
+        assert msg_id == "m9"
+        assert consumer.adapter is live
+        dead.send.assert_awaited_once()
+        live.send.assert_awaited_once()
 
 
 # ── _clean_for_display unit tests ────────────────────────────────────────

@@ -18740,6 +18740,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                         on_before_finalize=_pause_typing_before_finalize,
                         initial_reply_to_id=event_message_id,
                         run_still_current=_run_still_current,
+                        # Survive a mid-turn adapter swap (reconnect/fatal):
+                        # re-resolve the live adapter so streamed edits/sends
+                        # don't stay pinned to a torn-down instance.
+                        resolve_adapter=lambda: self._adapter_for_source(source),
                     )
             except Exception as _sc_err:
                 logger.debug("Proxy: could not set up stream consumer: %s", _sc_err)
@@ -19685,16 +19689,28 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     _edit_accepts_metadata = False
 
             async def _edit_progress_message(message_id: str, content: str):
+                # Re-resolve the live adapter each call: a mid-turn reconnect
+                # can swap this platform's adapter, leaving the captured
+                # `adapter` a torn-down instance whose SDK executor is dead.
+                _live = self._adapter_for_source(source) or adapter
                 kwargs = {
                     "chat_id": source.chat_id,
                     "message_id": message_id,
                     "content": content,
                 }
-                if getattr(adapter, "REQUIRES_EDIT_FINALIZE", False):
+                if getattr(_live, "REQUIRES_EDIT_FINALIZE", False):
                     kwargs["finalize"] = True
                 if _edit_accepts_metadata:
                     kwargs["metadata"] = _progress_metadata
-                return await adapter.edit_message(**kwargs)
+                _res = await _live.edit_message(**kwargs)
+                # If the bound instance was superseded mid-call, retry once on
+                # the freshly-installed adapter (message ids are app-scoped, so
+                # any live instance of the same app can edit them).
+                if not getattr(_res, "success", True):
+                    _live2 = self._adapter_for_source(source)
+                    if _live2 is not None and _live2 is not _live:
+                        _res = await _live2.edit_message(**kwargs)
+                return _res
 
             def _progress_text(lines: list) -> str:
                 return "\n".join(str(line) for line in lines)
@@ -20209,6 +20225,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                             on_before_finalize=_pause_typing_before_finalize,
                             initial_reply_to_id=event_message_id,
                             run_still_current=_run_still_current,
+                            # Survive a mid-turn adapter swap (reconnect/fatal):
+                            # re-resolve the live adapter so streamed edits/sends
+                            # don't stay pinned to a torn-down instance.
+                            resolve_adapter=lambda: self._adapter_for_source(source),
                         )
                         if _want_stream_deltas:
                             def _stream_delta_cb(text: str) -> None:
@@ -21555,6 +21575,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     if _long_running_mode == "generic"
                     else f"⏳ Working — {_elapsed_mins} min{_status_detail}"
                 )
+                # Re-resolve the live adapter each tick: over a long turn a
+                # reconnect can swap the platform's adapter, and the one
+                # captured before the loop would be a torn-down instance.
+                _notify_adapter = self._adapter_for_source(source) or _notify_adapter
                 try:
                     _notify_res = None
                     if _heartbeat_msg_id:
@@ -22223,7 +22247,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 _sc_msg_id = _sc.message_id
                 if _sc_msg_id:
                     try:
-                        await _sc.adapter.edit_message(
+                        # Use the live adapter, not the (possibly superseded)
+                        # one the stream consumer was built with.
+                        await (self._adapter_for_source(source) or _sc.adapter).edit_message(
                             chat_id=source.chat_id,
                             message_id=_sc_msg_id,
                             content=response["final_response"],

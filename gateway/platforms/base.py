@@ -25,6 +25,25 @@ from utils import normalize_proxy_url
 
 logger = logging.getLogger(__name__)
 
+
+class AdapterShuttingDownError(RuntimeError):
+    """Raised by an adapter's send/edit path when its own transport resources
+    (e.g. the Feishu SDK thread-pool executor) were torn down by a
+    disconnect/fatal reconnect and can no longer be resurrected on that
+    instance.
+
+    Subclasses ``RuntimeError`` so existing broad ``except RuntimeError`` /
+    ``except Exception`` handlers (and message-text test assertions) keep
+    catching it unchanged.  The delivery layer (``GatewayStreamConsumer`` and
+    the gateway edit/send sites) treats it — alongside a failed ``SendResult``
+    — as the signal to re-resolve the *live* adapter from ``self.adapters`` and
+    retry, so an in-flight turn's outbound survives the gateway swapping the
+    adapter under it during a reconnect (the split-brain where a rebuilt
+    adapter receives on a fresh WebSocket while the old instance can no longer
+    send).
+    """
+
+
 # Audio file extensions Hermes recognizes for native audio delivery.
 # Kept in sync with tools/send_message_tool.py and cron/scheduler.py via
 # should_send_media_as_audio() below.

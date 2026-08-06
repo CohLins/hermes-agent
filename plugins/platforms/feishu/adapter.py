@@ -135,6 +135,7 @@ FEISHU_WEBHOOK_AVAILABLE = aiohttp is not None
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
+    AdapterShuttingDownError,
     BasePlatformAdapter,
     MessageEvent,
     MessageType,
@@ -1834,7 +1835,13 @@ class FeishuAdapter(BasePlatformAdapter):
             self._sdk_executor_lock = lock
         with lock:
             if getattr(self, "_sdk_executor_closing", False):
-                raise RuntimeError("Feishu adapter is shutting down; SDK executor unavailable")
+                # AdapterShuttingDownError (a RuntimeError subclass, same
+                # message) lets the delivery layer recognise a superseded
+                # instance and re-resolve the live adapter instead of retrying
+                # forever against this permanently-closed one.
+                raise AdapterShuttingDownError(
+                    "Feishu adapter is shutting down; SDK executor unavailable"
+                )
             executor = getattr(self, "_sdk_executor", None)
             if executor is None or getattr(executor, "_shutdown", False):
                 executor = concurrent.futures.ThreadPoolExecutor(
@@ -2156,6 +2163,19 @@ class FeishuAdapter(BasePlatformAdapter):
             last = self._last_ws_activity_at
             if idle_max and idle_max > 0 and last > 0:
                 if (time.monotonic() - last) > idle_max:
+                    # An in-flight agent turn legitimately explains DATA-frame
+                    # silence: the user is waiting on a slow model call (a
+                    # single request can take ~85s), not a 假活 link.  Firing
+                    # recv_idle here forces a needless reconnect that strands
+                    # the turn's outbound on the torn-down adapter (the
+                    # reconnect split-brain).  Suppress recv_idle while any
+                    # session is active — hard reasons (socket_closed /
+                    # ws_thread_exited / PONG) above are unaffected, and a
+                    # genuinely stalled link is still caught once the turn
+                    # drains and _active_sessions empties.  Tradeoff: recv_idle
+                    # detection is delayed (not lost) during an active turn.
+                    if getattr(self, "_active_sessions", None):
+                        return True, "healthy_active_turn"
                     return False, "recv_idle"
             return True, "healthy"
         except Exception:
@@ -5453,6 +5473,12 @@ class FeishuAdapter(BasePlatformAdapter):
                 return response
             except Exception as exc:
                 last_error = exc
+                # A closed SDK executor never recovers on this instance;
+                # retrying only wastes the backoff and delays the delivery
+                # layer's re-resolve to the live adapter. Fail fast so the
+                # caller (send/edit) surfaces it immediately.
+                if isinstance(exc, AdapterShuttingDownError):
+                    raise
                 if msg_type == "post" and _POST_CONTENT_INVALID_RE.search(str(exc)):
                     raise
                 if attempt >= _FEISHU_SEND_ATTEMPTS - 1:

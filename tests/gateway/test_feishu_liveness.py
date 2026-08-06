@@ -239,6 +239,30 @@ def test_read_ws_health_recv_idle():
     assert reason == "recv_idle"
 
 
+def test_read_ws_health_recv_idle_suppressed_during_active_turn():
+    """An in-flight agent turn legitimately explains DATA-frame silence (the
+    user is waiting on a slow model call), so recv_idle must NOT fire while a
+    session is active — otherwise a needless reconnect strands the turn's
+    outbound on the torn-down adapter (reconnect split-brain)."""
+    adapter = _make_adapter(ws_idle_max_seconds=1)
+    adapter._running = True
+    adapter._ws_thread_loop = SimpleNamespace()
+    adapter._ws_future = None
+    adapter._ws_client = SimpleNamespace(_conn=_fake_conn())
+    adapter._last_ws_activity_at = time.monotonic() - 3600
+    # A turn is processing on this adapter.
+    adapter._active_sessions["agent:main:feishu:dm:oc_x"] = asyncio.Event()
+    healthy, reason = adapter._read_ws_health(adapter._ws_client)
+    assert healthy is True
+    assert reason == "healthy_active_turn"
+
+    # Once the turn drains, a genuinely stalled link is caught again.
+    adapter._active_sessions.clear()
+    healthy2, reason2 = adapter._read_ws_health(adapter._ws_client)
+    assert healthy2 is False
+    assert reason2 == "recv_idle"
+
+
 def test_read_ws_health_healthy():
     adapter = _make_adapter()
     adapter._running = True

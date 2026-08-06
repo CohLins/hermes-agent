@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from gateway.platforms.base import AdapterShuttingDownError
 from gateway.platforms.base import BasePlatformAdapter as _BasePlatformAdapter
 from gateway.platforms.base import _custom_unit_to_cp
 from gateway.platforms.base import MEDIA_TAG_CLEANUP_RE
@@ -126,8 +127,18 @@ class GatewayStreamConsumer:
         on_before_finalize: Optional[Callable[[], Any]] = None,
         initial_reply_to_id: Optional[str] = None,
         run_still_current: Optional[Callable[[], bool]] = None,
+        resolve_adapter: Optional[Callable[[], Any]] = None,
     ):
         self.adapter = adapter
+        # Resolves the platform's *current* live adapter from the gateway
+        # registry (typically ``lambda: self._adapter_for_source(source)``).
+        # A long streamed turn can outlive its adapter: a mid-turn reconnect
+        # rebuilds the adapter and installs a fresh instance, tearing down the
+        # one bound here.  When an outbound op then fails on the stale adapter,
+        # the consumer re-resolves via this hook and retries once on the live
+        # instance so the reply keeps flowing.  ``None`` disables the retry
+        # (behaviour unchanged for callers that don't pass it).
+        self._resolve_adapter = resolve_adapter
         self.chat_id = chat_id
         self.cfg = config or StreamConsumerConfig()
         self.metadata = metadata
@@ -283,6 +294,48 @@ class GatewayStreamConsumer:
         except Exception:
             pass
 
+    def _rebind_live_adapter(self) -> bool:
+        """Rebind ``self.adapter`` to the gateway's current live adapter.
+
+        Returns True only when a *different* adapter was resolved (i.e. the
+        gateway swapped this platform's adapter under us via a reconnect/fatal
+        rebuild).  Returns False when there is no resolver, the resolver yields
+        nothing (mid-reconnect window — old popped, new not yet installed), or
+        the live adapter is still the one we hold.
+        """
+        if self._resolve_adapter is None:
+            return False
+        try:
+            live = self._resolve_adapter()
+        except Exception:
+            return False
+        if live is None or live is self.adapter:
+            return False
+        self.adapter = live
+        return True
+
+    async def _outbound_with_swap_retry(self, call: Callable[[Any], Any]):
+        """Run an outbound op against the bound adapter, surviving a swap.
+
+        ``call(adapter)`` performs a single send/edit and returns a
+        SendResult-like (``.success``).  If it reports failure — or raises
+        ``AdapterShuttingDownError`` — AND the gateway has since swapped in a
+        fresh adapter, rebind to the live instance and retry exactly once.
+        This is the delivery-layer half of the reconnect split-brain fix: the
+        rebuilt adapter receives on a new WebSocket, so the retry lands on the
+        instance whose SDK executor is actually alive.
+        """
+        try:
+            result = await call(self.adapter)
+            failed = not getattr(result, "success", True)
+        except AdapterShuttingDownError:
+            if self._rebind_live_adapter():
+                return await call(self.adapter)
+            raise
+        if failed and self._rebind_live_adapter():
+            return await call(self.adapter)
+        return result
+
     async def _edit_message(
         self,
         *,
@@ -310,7 +363,9 @@ class GatewayStreamConsumer:
                     kwargs["metadata"] = self.metadata
             except (TypeError, ValueError):
                 pass
-        return await self.adapter.edit_message(**kwargs)
+        return await self._outbound_with_swap_retry(
+            lambda _adapter: _adapter.edit_message(**kwargs)
+        )
 
     def has_delivered_text(self, text: str) -> bool:
         """Return True if *text* was already delivered as visible chat content."""
@@ -927,11 +982,14 @@ class GatewayStreamConsumer:
         if not text.strip():
             return reply_to_id
         try:
-            result = await self.adapter.send(
+            _send_kwargs = dict(
                 chat_id=self.chat_id,
                 content=text,
                 reply_to=reply_to_id,
                 metadata=self._metadata_for_send(final=final, expect_edits=True),
+            )
+            result = await self._outbound_with_swap_retry(
+                lambda _adapter: _adapter.send(**_send_kwargs)
             )
             if result.success and result.message_id:
                 self._message_id = str(result.message_id)
@@ -1077,10 +1135,13 @@ class GatewayStreamConsumer:
             # Try sending with one retry on flood-control errors.
             result = None
             for attempt in range(2):
-                result = await self.adapter.send(
+                _fallback_kwargs = dict(
                     chat_id=self.chat_id,
                     content=chunk,
                     metadata=self._metadata_for_send(final=True),
+                )
+                result = await self._outbound_with_swap_retry(
+                    lambda _adapter: _adapter.send(**_fallback_kwargs)
                 )
                 if result.success:
                     break

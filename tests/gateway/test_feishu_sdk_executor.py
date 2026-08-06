@@ -101,6 +101,48 @@ def test_closing_flag_refuses_resurrection():
         adapter._get_sdk_executor()
 
 
+def test_closing_flag_raises_adapter_shutting_down():
+    """The executor refusal must be the typed AdapterShuttingDownError so the
+    delivery layer can recognise a superseded instance and re-resolve the live
+    adapter (reconnect split-brain fix)."""
+    from gateway.platforms.base import AdapterShuttingDownError
+
+    adapter = _bare_adapter()
+    adapter._get_sdk_executor()
+    adapter._shutdown_sdk_executor()
+    with pytest.raises(AdapterShuttingDownError):
+        adapter._get_sdk_executor()
+
+
+@pytest.mark.asyncio
+async def test_send_with_retry_fails_fast_when_shutting_down():
+    """A closed executor never recovers on this instance, so the send retry
+    loop must surface AdapterShuttingDownError on the first attempt instead of
+    burning its 3 attempts / backoff — that only delays the delivery layer's
+    re-resolve to the live adapter."""
+    from gateway.platforms.base import AdapterShuttingDownError
+
+    adapter = _bare_adapter()
+    calls = {"n": 0}
+
+    async def _boom(**kwargs):
+        calls["n"] += 1
+        raise AdapterShuttingDownError(
+            "Feishu adapter is shutting down; SDK executor unavailable"
+        )
+
+    adapter._send_raw_message = _boom
+    with pytest.raises(AdapterShuttingDownError):
+        await adapter._feishu_send_with_retry(
+            chat_id="c",
+            msg_type="text",
+            payload="{}",
+            reply_to=None,
+            metadata=None,
+        )
+    assert calls["n"] == 1  # no retries burned on the dead instance
+
+
 @pytest.mark.asyncio
 async def test_reconnect_rearms_executor():
     """connect() clears the closing flag so a reconnect can use the pool again."""
