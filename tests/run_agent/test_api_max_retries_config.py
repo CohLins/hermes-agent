@@ -28,10 +28,10 @@ def _make_agent(api_max_retries=None):
         )
 
 
-def test_default_api_max_retries_is_three():
-    """No config override → legacy default of 3 retries preserved."""
+def test_default_api_max_retries_is_five():
+    """No config override → default of 5 retries applied."""
     agent = _make_agent()
-    assert agent._api_max_retries == 3
+    assert agent._api_max_retries == 5
 
 
 def test_api_max_retries_honors_config_override():
@@ -55,11 +55,11 @@ def test_api_max_retries_clamps_below_one_to_one():
 
 
 def test_api_max_retries_falls_back_on_invalid_value():
-    """Garbage values in config don't crash agent init — fall back to 3."""
+    """Garbage values in config don't crash agent init — fall back to 5."""
     agent = _make_agent(api_max_retries="not-a-number")
-    assert agent._api_max_retries == 3
+    assert agent._api_max_retries == 5
 
     agent2 = _make_agent(api_max_retries=None)
-    # None with dict.get default fires → default(3), then int(None) raises
-    # TypeError → except branch sets to 3.
-    assert agent2._api_max_retries == 3
+    # None with dict.get default fires → default(5), then int(None) raises
+    # TypeError → except branch sets to 5.
+    assert agent2._api_max_retries == 5

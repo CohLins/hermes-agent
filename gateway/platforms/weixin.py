@@ -1468,7 +1468,14 @@ class WeixinAdapter(BasePlatformAdapter):
             timestamp=datetime.now(),
         )
         logger.info("[%s] inbound from=%s type=%s media=%d", self.name, _safe_id(sender_id), source.chat_type, len(media_paths))
-        if event.message_type == MessageType.TEXT:
+        # Slash commands (/approve, /deny, /stop, ...) must bypass the text
+        # debounce buffer: batching would delay them by text_batch_delay_seconds
+        # (and concatenate them with follow-up text), which can push /approve
+        # past the 60s dangerous-command approval window and auto-deny. Mirrors
+        # the base adapter's queue-debounce exemption, which excludes commands
+        # via `not event.is_command()` (_is_queue_text_debounce_candidate).
+        # Plain text still batches.
+        if event.message_type == MessageType.TEXT and not event.is_command():
             self._enqueue_text_event(event)
         else:
             await self.handle_message(event)

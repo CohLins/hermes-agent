@@ -1583,14 +1583,14 @@ def init_agent(
         _platform_hints_cfg = {}
     agent._platform_hint_overrides = _platform_hints_cfg
 
-    # App-level API retry count (wraps each model API call).  Default 3,
+    # App-level API retry count (wraps each model API call).  Default 5,
     # overridable via agent.api_max_retries in config.yaml.  See #11616.
     try:
-        _raw_api_retries = _agent_section.get("api_max_retries", 3)
+        _raw_api_retries = _agent_section.get("api_max_retries", 5)
         _api_retries = int(_raw_api_retries)
         _api_retries = max(_api_retries, 1)  # 1 = no retry (single attempt)
     except (TypeError, ValueError):
-        _api_retries = 3
+        _api_retries = 5
     agent._api_max_retries = _api_retries
 
     # Initialize context compressor for automatic context management

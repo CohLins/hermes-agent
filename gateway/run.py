@@ -5834,18 +5834,29 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             from tools.approval import has_blocking_approval
             if has_blocking_approval(session_key):
                 _raw_text = (event.text or "").strip().lower()
-                _approve_words = {"approve", "yes", "ok", "okay", "confirm", "y", "👍"}
-                _deny_words = {"deny", "no", "reject", "cancel", "n", "👎"}
+                # Chinese approval words are accepted alongside the English set
+                # so zh users can reply naturally ("同意"/"拒绝"). Safe globally:
+                # this branch only fires when has_blocking_approval() is true,
+                # and .lower() leaves CJK unchanged. Keep the card prompt
+                # (locales/*.yaml approval.chat_approve_*) in sync.
+                _approve_words = {
+                    "approve", "yes", "ok", "okay", "confirm", "y", "👍",
+                    "同意", "确认", "批准", "好", "是", "可以",
+                }
+                _deny_words = {
+                    "deny", "no", "reject", "cancel", "n", "👎",
+                    "拒绝", "否", "取消", "不",
+                }
                 _approval_handler = None
                 _normalized_args = ""
                 if _raw_text in _approve_words:
                     _approval_handler = self._handle_approve_command
                 elif _raw_text in _deny_words:
                     _approval_handler = self._handle_deny_command
-                elif _raw_text in {"always", "approve always", "always approve"}:
+                elif _raw_text in {"always", "approve always", "always approve", "永久", "一直"}:
                     _approval_handler = self._handle_approve_command
                     _normalized_args = "always"
-                elif _raw_text in {"session", "approve session", "session approve"}:
+                elif _raw_text in {"session", "approve session", "session approve", "本次", "本次会话"}:
                     _approval_handler = self._handle_approve_command
                     _normalized_args = "session"
                 if _approval_handler is not None:
