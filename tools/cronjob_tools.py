@@ -308,6 +308,72 @@ def _origin_from_env() -> Optional[Dict[str, str]]:
     return None
 
 
+def _isolation_user_id() -> Optional[str]:
+    """Return the current user_id when per-user cron isolation is active, else None.
+
+    Isolation engages only when BOTH hold:
+
+    1. the ACTIVE profile's config has ``cron.user_isolation: true``.
+       ``load_config()`` reads ``get_hermes_home()/config.yaml`` (see
+       hermes_cli/config.py), so this is strictly per-profile — only the
+       profile that opts in (in practice the feishu profile) is affected; every
+       other profile reads a falsy value and behaves byte-for-byte as before.
+    2. the current session carries a non-empty ``HERMES_SESSION_USER_ID``.
+       Messaging turns set it (feishu arrives via relay carrying user_id);
+       CLI / TUI / scheduler contexts do not — those are treated as
+       admin/system and see everything (this also handles legacy jobs that
+       predate origin.user_id).
+
+    Best-effort on the *switch*: any failure resolving config/session falls back
+    to ``None`` (fail-open) so a config read error can never wedge the cron
+    tool. Once a user_id IS resolved, the per-job access checks fail *closed*.
+    """
+    try:
+        from hermes_cli.config import load_config
+
+        cfg = load_config()
+        cron_cfg = cfg.get("cron") if isinstance(cfg, dict) else None
+        if not (isinstance(cron_cfg, dict) and cron_cfg.get("user_isolation")):
+            return None
+    except Exception:
+        return None
+    try:
+        from gateway.session_context import get_session_env
+
+        uid = (get_session_env("HERMES_SESSION_USER_ID") or "").strip()
+    except Exception:
+        return None
+    return uid or None
+
+
+def _job_owned_by(job: Dict[str, Any], user_id: str) -> bool:
+    """True when ``job`` was created by ``user_id`` (origin.user_id match)."""
+    origin = job.get("origin") or {}
+    if not isinstance(origin, dict):
+        return False
+    owner = origin.get("user_id")
+    return bool(owner) and str(owner) == str(user_id)
+
+
+def _job_not_found_response(job_ref: str) -> str:
+    """Uniform 'not found' response.
+
+    Reused for genuinely-missing jobs AND for isolation denials, so a caller
+    can never distinguish "no such job" from "someone else's job" (no
+    existence leak).
+    """
+    return json.dumps(
+        {
+            "success": False,
+            "error": (
+                f"Job with ID or name '{job_ref}' not found. "
+                "Use cronjob(action='list') to inspect jobs."
+            ),
+        },
+        indent=2,
+    )
+
+
 def _local_delivery_notice(job: Dict[str, Any], user_deliver: Optional[str]) -> Optional[str]:
     """Return an informational notice when a created job won't deliver anywhere.
 
@@ -684,6 +750,10 @@ def cronjob(
 
     try:
         normalized = (action or "").strip().lower()
+        # Per-user cron isolation gate, resolved once per call. Non-None means
+        # isolation is active for THIS user; None means no isolation (switch
+        # off, or admin/system context with no session user_id).
+        _iso_uid = _isolation_user_id()
 
         if normalized == "create":
             if not schedule:
@@ -721,12 +791,18 @@ def cronjob(
             if base_url_error:
                 return tool_error(base_url_error, success=False)
 
-            # Validate context_from references existing jobs
+            # Validate context_from references existing jobs. Under isolation
+            # the referenced job must also belong to the caller, else it's
+            # reported as not-found — prevents reading another user's job
+            # output via context_from.
             if context_from:
                 from cron.jobs import get_job as _get_job
                 refs = [context_from] if isinstance(context_from, str) else context_from
                 for ref_id in refs:
-                    if not _get_job(ref_id):
+                    _ref_job = _get_job(ref_id)
+                    if not _ref_job or (
+                        _iso_uid is not None and not _job_owned_by(_ref_job, _iso_uid)
+                    ):
                         return tool_error(
                             f"context_from job '{ref_id}' not found. "
                             "Use cronjob(action='list') to see available jobs.",
@@ -774,7 +850,14 @@ def cronjob(
             )
 
         if normalized == "list":
-            jobs = [_format_job(job) for job in list_jobs(include_disabled=include_disabled)]
+            raw_jobs = list_jobs(include_disabled=include_disabled)
+            if _iso_uid is not None:
+                # Isolation: show only the caller's own jobs. Jobs with no
+                # origin.user_id (legacy / CLI-created) stay hidden here
+                # (fail-closed for messaging users; CLI has _iso_uid is None
+                # and sees everything).
+                raw_jobs = [j for j in raw_jobs if _job_owned_by(j, _iso_uid)]
+            jobs = [_format_job(job) for job in raw_jobs]
             return json.dumps({"success": True, "count": len(jobs), "jobs": jobs}, indent=2)
 
         if not job_id:
@@ -783,27 +866,42 @@ def cronjob(
         try:
             job = resolve_job_ref(job_id)
         except AmbiguousJobReference as exc:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": str(exc),
-                    "matches": [
-                        {
-                            "id": m["id"],
-                            "name": m.get("name"),
-                            "schedule": m.get("schedule_display"),
-                            "next_run_at": m.get("next_run_at"),
-                        }
-                        for m in exc.matches
-                    ],
-                },
-                indent=2,
-            )
+            matches = exc.matches
+            if _iso_uid is not None:
+                # Judge ambiguity ONLY within the caller's own jobs, so a
+                # name that also matches someone else's job neither leaks its
+                # existence nor blocks the caller's own unique match.
+                matches = [m for m in matches if _job_owned_by(m, _iso_uid)]
+                if not matches:
+                    return _job_not_found_response(job_id)
+            if _iso_uid is not None and len(matches) == 1:
+                # No longer ambiguous once scoped to the caller — fall through
+                # to normal handling with the single owned match.
+                job = matches[0]
+            else:
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": str(exc),
+                        "matches": [
+                            {
+                                "id": m["id"],
+                                "name": m.get("name"),
+                                "schedule": m.get("schedule_display"),
+                                "next_run_at": m.get("next_run_at"),
+                            }
+                            for m in matches
+                        ],
+                    },
+                    indent=2,
+                )
         if not job:
-            return json.dumps(
-                {"success": False, "error": f"Job with ID or name '{job_id}' not found. Use cronjob(action='list') to inspect jobs."},
-                indent=2,
-            )
+            return _job_not_found_response(job_id)
+        # Isolation: a job that exists but isn't the caller's is indistinguishable
+        # from a missing one (no existence leak). Covers remove/pause/resume/
+        # run/trigger/update in one place.
+        if _iso_uid is not None and not _job_owned_by(job, _iso_uid):
+            return _job_not_found_response(job_id)
         # Resolve to canonical ID (supports name-based lookup)
         job_id = job["id"]
 
@@ -912,7 +1010,10 @@ def cronjob(
                 if refs:
                     from cron.jobs import get_job as _get_job
                     for ref_id in refs:
-                        if not _get_job(ref_id):
+                        _ref_job = _get_job(ref_id)
+                        if not _ref_job or (
+                            _iso_uid is not None and not _job_owned_by(_ref_job, _iso_uid)
+                        ):
                             return tool_error(
                                 f"context_from job '{ref_id}' not found. "
                                 "Use cronjob(action='list') to see available jobs.",
