@@ -41,12 +41,17 @@ def mirror_to_session(
     ``send_message`` mirror, where the mirrored text is the agent's own
     outgoing reply (a genuine assistant turn). Callers mirroring text that is
     NOT the agent speaking — e.g. a cron brief delivered out-of-band — must
-    pass ``role="user"``: the ``mirror``/``mirror_source`` metadata is dropped
-    at the SQLite boundary (only role+content persist), so on replay an
-    assistant-role mirror is indistinguishable from a real assistant turn and
-    produces ``assistant → assistant`` pairs that break strict-alternation
-    providers (issue #2221). A user-role mirror collapses safely via
+    pass ``role="user"``: on replay an assistant-role mirror is
+    indistinguishable from a real assistant turn and produces
+    ``assistant → assistant`` pairs that break strict-alternation providers
+    (issue #2221). A user-role mirror collapses safely via
     ``repair_message_sequence``'s consecutive-user merge on every provider.
+
+    ``source_label`` is persisted to the row's ``mirror_source`` column, so a
+    user-role mirror stays distinguishable from the user actually talking.  It
+    used to be dropped at the SQLite boundary, which left the content prefix as
+    the only marker — and anything asking "when did the user last speak" had to
+    pattern-match that prefix.
 
     Returns True if mirrored successfully, False if no matching session or error.
     All errors are caught -- this is never fatal.
@@ -198,6 +203,7 @@ def _append_to_sqlite(session_id: str, message: dict) -> None:
             session_id=session_id,
             role=message.get("role", "assistant"),
             content=message.get("content"),
+            mirror_source=message.get("mirror_source"),
         )
     except Exception as e:
         logger.debug("Mirror SQLite write failed: %s", e)

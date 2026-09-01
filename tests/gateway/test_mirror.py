@@ -268,3 +268,49 @@ class TestAppendToSqlite:
             _append_to_sqlite("sess_1", {"role": "assistant", "content": "hello"})
 
         mock_db.close.assert_called_once()
+
+    def test_mirror_source_is_persisted(self):
+        """It used to be dropped here, leaving the content prefix as the only
+        way to tell a mirrored cron message from the user actually talking."""
+        from gateway.mirror import _append_to_sqlite
+        mock_db = MagicMock()
+
+        with patch("hermes_state.SessionDB", return_value=mock_db):
+            _append_to_sqlite(
+                "sess_1",
+                {"role": "user", "content": "hi", "mirror_source": "cron"},
+            )
+
+        assert mock_db.append_message.call_args.kwargs["mirror_source"] == "cron"
+
+    def test_absent_mirror_source_stays_none(self):
+        from gateway.mirror import _append_to_sqlite
+        mock_db = MagicMock()
+
+        with patch("hermes_state.SessionDB", return_value=mock_db):
+            _append_to_sqlite("sess_1", {"role": "assistant", "content": "hi"})
+
+        assert mock_db.append_message.call_args.kwargs["mirror_source"] is None
+
+
+class TestMirrorLabel:
+    """The label has to name the *speaker*, not just the channel."""
+
+    def test_label_says_it_is_the_agents_own_message(self):
+        from cron.scheduler import _mirror_label
+
+        out = _mirror_label({"name": "心跳"}, "早呀")
+        assert out.endswith("\n早呀")
+        assert "心跳" in out
+        assert "not from the user" in out
+
+    def test_falls_back_to_job_id_then_cron(self):
+        from cron.scheduler import _mirror_label
+
+        assert "job-7" in _mirror_label({"id": "job-7"}, "x")
+        assert "cron" in _mirror_label({}, "x")
+
+    def test_name_wins_over_id(self):
+        from cron.scheduler import _mirror_label
+
+        assert "心跳" in _mirror_label({"name": "心跳", "id": "job-7"}, "x")

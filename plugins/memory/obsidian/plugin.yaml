@@ -1,0 +1,3 @@
+name: obsidian
+version: 1.0.0
+description: "Obsidian permanent memory — mirrors built-in memory/user writes into an Obsidian vault (Agent记忆/) as human-readable Markdown and auto-recalls relevant ones each turn. CJK-aware in-memory retrieval; filesystem-only, needs no plugin or a running Obsidian app."

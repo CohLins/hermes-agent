@@ -114,6 +114,103 @@ def _resolve_platform_hint(agent: Any, platform_key: str, default_hint: str) -> 
     return base
 
 
+#: Coarse time-of-day labels.  Buckets, not a clock: a persona needs the
+#: *category* ("he's probably asleep"), never 23:47, and a minute-precision
+#: line would rewrite the system prompt 1440 times a day — see the comment on
+#: the timestamp line below for why byte-stability matters here.
+_DAYPARTS = (
+    (6, "late night"),
+    (9, "early morning"),
+    (12, "morning"),
+    (14, "midday"),
+    (18, "afternoon"),
+    (20, "early evening"),
+    (23, "evening"),
+    (24, "late evening"),
+)
+
+def daypart_label(hour: int) -> str:
+    """Bucket an hour-of-day (0-23) into a coarse time-of-day label."""
+    for upper, label in _DAYPARTS:
+        if hour < upper:
+            return label
+    return _DAYPARTS[-1][1]
+
+
+def conversation_gap_label(seconds: float, days_apart: int = 0) -> str:
+    """Bucket a silence into a coarse "last spoke" label.
+
+    Sub-day gaps come from elapsed seconds; anything longer is counted in
+    *calendar* days, because "yesterday" is a calendar word and elapsed time
+    misreads it in exactly the case that matters for a companion: someone says
+    goodnight at 22:00 and is greeted at 10:00 the next morning.  That is 12
+    hours — "earlier today" by a pure seconds table, and wrong.  Thirty-six
+    hours is likewise two dates apart, not "yesterday".
+    """
+    if seconds < 0:
+        seconds = 0.0
+    if days_apart < 0:
+        days_apart = 0
+    if days_apart == 0:
+        if seconds < 30 * 60:
+            return "just now"
+        if seconds < 2 * 3600:
+            return "about an hour ago"
+        if seconds < 6 * 3600:
+            return "a few hours ago"
+        return "earlier today"
+    # Crossing midnight yet still only minutes ago (23:58 → 00:05) reads as
+    # continuous conversation, not as a new day.
+    if seconds < 30 * 60:
+        return "just now"
+    if days_apart == 1:
+        return "yesterday"
+    if days_apart <= 3:
+        return "2-3 days ago"
+    if days_apart <= 7:
+        return "about a week ago"
+    if days_apart <= 15:
+        return "over a week ago"
+    return "a long time ago"
+
+
+def build_time_awareness_lines(agent: Any, now: Any) -> List[str]:
+    """Time-of-day + last-contact lines, when ``agent.time_awareness`` is on.
+
+    Off by default.  A persona file can *assert* that the agent knows the hour
+    and how long it has been since you talked, but nothing supplied either
+    value, so the model could only perform those feelings.  This supplies them
+    — coarsely, so the prompt stays byte-stable for hours at a time rather than
+    minutes (see the timestamp-line comment).
+    """
+    if str(getattr(agent, "_time_awareness", "off") or "off").lower() != "bucket":
+        return []
+
+    lines = [f"Time of day: {daypart_label(now.hour)}"]
+
+    db = getattr(agent, "_session_db", None)
+    getter = getattr(db, "get_last_user_message_at", None) if db else None
+    if not callable(getter):
+        return lines
+    try:
+        last = getter(exclude_session_id=getattr(agent, "session_id", None))
+    except Exception:
+        return lines
+    if last is None:
+        lines.append("Last message from the user: no earlier conversation on record")
+    else:
+        import datetime as _dt
+
+        last_dt = _dt.datetime.fromtimestamp(float(last), tz=now.tzinfo)
+        gap = now.timestamp() - float(last)
+        days_apart = (now.date() - last_dt.date()).days
+        lines.append(
+            "Last message from the user: "
+            f"{conversation_gap_label(gap, days_apart)}"
+        )
+    return lines
+
+
 _TUI_EMBEDDED_PANE_CLARIFIER = (
     " You're in its embedded terminal pane, beside the GUI chat — the user can "
     "select your output (Option-drag on macOS, Shift-drag elsewhere) and press "
@@ -509,6 +606,11 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     # exact wall-clock time via tools when it actually needs it.
     # Credit: @iamfoz (PR #20451).
     timestamp_line = f"Conversation started: {now.strftime('%A, %B %d, %Y')}"
+    # Opt-in coarse time awareness (agent.time_awareness: bucket).  Buckets
+    # keep the date-only byte-stability rationale above intact: they turn over
+    # a handful of times a day instead of every minute.
+    for _ta_line in build_time_awareness_lines(agent, now):
+        timestamp_line += f"\n{_ta_line}"
     if agent.pass_session_id and agent.session_id:
         timestamp_line += f"\nSession ID: {agent.session_id}"
     if agent.model:

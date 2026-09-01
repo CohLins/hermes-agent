@@ -1439,6 +1439,12 @@ def init_agent(
                     memory_char_limit=mem_config.get("memory_char_limit", 2200),
                     user_char_limit=mem_config.get("user_char_limit", 1375),
                 )
+                # Cron may read the user profile (so a scheduled run knows who
+                # it is talking to) but never write it: a cron "user turn" is
+                # the job description, so a write would file machine text as
+                # a user fact.  MEMORY.md writes stay allowed.
+                if platform == "cron":
+                    agent._memory_store.user_profile_writable = False
                 agent._memory_store.load_from_disk()
         except Exception:
             pass  # Memory is optional -- don't break agent init
@@ -1460,11 +1466,17 @@ def init_agent(
                 if _mp and _mp.is_available():
                     agent._memory_manager.add_provider(_mp)
                 if agent._memory_manager.providers:
+                    # ``agent_context`` is the documented provider contract
+                    # ("primary" / "subagent" / "cron" / "flush", see
+                    # agent/memory_provider.py).  It was pinned to "primary"
+                    # while cron never reached this code at all (skip_memory);
+                    # now that cron can opt into memory, report the real
+                    # context so providers can apply their own asymmetry.
                     _init_kwargs = {
                         "session_id": agent.session_id,
                         "platform": platform or "cli",
                         "hermes_home": str(get_hermes_home()),
-                        "agent_context": "primary",
+                        "agent_context": "cron" if platform == "cron" else "primary",
                     }
                     if _init_kwargs["platform"] == "cli":
                         _init_kwargs["warning_callback"] = agent._emit_warning
@@ -1548,6 +1560,13 @@ def init_agent(
     # the other.  Steers the model to batch independent tool calls into a
     # single turn; the runtime already executes such batches concurrently.
     agent._parallel_tool_call_guidance = bool(_agent_section.get("parallel_tool_call_guidance", True))
+
+    # Coarse time awareness: "off" (default) or "bucket".  When on, the
+    # volatile tier gains a time-of-day bucket and a "last message from the
+    # user" bucket.  Off by default because it costs a session-store read and
+    # only companion-style personas need it — but a persona that claims to
+    # know the hour or to feel a long silence has no other source for either.
+    agent._time_awareness = str(_agent_section.get("time_awareness", "off") or "off")
 
     # Local Python toolchain probe toggle.  Default True.  When False,
     # the probe is skipped entirely (no subprocess calls, no system-prompt

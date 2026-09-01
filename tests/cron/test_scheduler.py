@@ -4286,9 +4286,17 @@ class TestCronDeliveryMirror:
 
     def test_mirror_writes_user_role_with_label_not_assistant(self):
         """Regression for #2221 / #2313: the cron brief must mirror as a USER
-        turn (with a [Cron delivery: ...] label), NOT assistant — an
-        assistant-role mirror lands as assistant->assistant after the agent's
-        last turn and breaks strict alternation on non-Anthropic providers."""
+        turn, NOT assistant — an assistant-role mirror lands as
+        assistant->assistant after the agent's last turn and breaks strict
+        alternation on non-Anthropic providers.
+
+        Because the row is stored under the user's role, the label has to name
+        the *speaker*, not just the channel: an agent replaying its own
+        transcript otherwise reads its own scheduled messages as things the
+        user said.  ``mirror_source`` now persists the same fact structurally
+        (see gateway/mirror.py), but the label is what the model actually
+        reads.
+        """
         from cron.scheduler import _maybe_mirror_cron_delivery
 
         with patch("gateway.mirror.mirror_to_session", return_value=True) as m:
@@ -4299,10 +4307,10 @@ class TestCronDeliveryMirror:
         m.assert_called_once()
         args, kwargs = m.call_args
         assert kwargs.get("role") == "user", "cron mirror must be a user turn, not assistant"
-        # The brief text is prefixed with a human-readable cron-delivery label
-        # so replay (where the mirror metadata is dropped at the SQLite
-        # boundary) still distinguishes it from a genuine user message.
-        assert args[2].startswith("[Cron delivery: Morning Brief]")
+        label = args[2].split("\n", 1)[0]
+        assert label.startswith("[") and label.endswith("]")
+        assert "Morning Brief" in label, "the label must name the job"
+        assert "not from the user" in label, "the label must name the speaker"
         assert "Market movers today" in args[2]
 
     def test_mirror_noop_when_disabled(self):

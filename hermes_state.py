@@ -830,7 +830,8 @@ CREATE TABLE IF NOT EXISTS messages (
     observed INTEGER DEFAULT 0,
     active INTEGER NOT NULL DEFAULT 1,
     compacted INTEGER NOT NULL DEFAULT 0,
-    api_content TEXT
+    api_content TEXT,
+    mirror_source TEXT
 );
 
 CREATE TABLE IF NOT EXISTS session_model_usage (
@@ -4169,6 +4170,7 @@ class SessionDB:
         effect_disposition: Optional[str] = None,
         timestamp: Any = None,
         api_content: Optional[str] = None,
+        mirror_source: Optional[str] = None,
     ) -> int:
         """
         Append a message to a session. Returns the message row ID.
@@ -4189,6 +4191,14 @@ class SessionDB:
         (which sqlite3 cannot bind and which the conversation loop scrubs
         from every outgoing payload anyway, so the scrubbed form IS the
         wire bytes).
+
+        ``mirror_source`` marks a row that was *mirrored* into this transcript
+        rather than spoken in it — cron output delivered out-of-band, for
+        instance.  Such a row is stored with ``role="user"`` on purpose (an
+        assistant-role mirror breaks strict-alternation providers, #2221), so
+        without this marker the agent's own scheduled messages are
+        indistinguishable from the user talking, and any "when did the user
+        last speak" question has to guess from the content prefix.
         """
         # Serialize structured fields to JSON before entering the write txn
         reasoning_details_json = (
@@ -4228,8 +4238,9 @@ class SessionDB:
                 """INSERT INTO messages (session_id, role, content, tool_call_id,
                    tool_calls, tool_name, effect_disposition, timestamp, token_count, finish_reason,
                    reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
-                   codex_message_items, platform_message_id, observed, active, api_content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   codex_message_items, platform_message_id, observed, active, api_content,
+                   mirror_source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     role,
@@ -4250,6 +4261,7 @@ class SessionDB:
                     1 if observed else 0,
                     1,
                     _scrub_surrogates(api_content) if isinstance(api_content, str) else None,
+                    _scrub_surrogates(mirror_source) if isinstance(mirror_source, str) else None,
                 ),
             )
             msg_id = cursor.lastrowid
@@ -4324,8 +4336,9 @@ class SessionDB:
                 """INSERT INTO messages (session_id, role, content, tool_call_id,
                    tool_calls, tool_name, effect_disposition, timestamp, token_count, finish_reason,
                    reasoning, reasoning_content, reasoning_details, codex_reasoning_items,
-                   codex_message_items, platform_message_id, observed, active, api_content)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   codex_message_items, platform_message_id, observed, active, api_content,
+                   mirror_source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     role,
@@ -4346,6 +4359,11 @@ class SessionDB:
                     1 if msg.get("observed") else 0,
                     1,
                     _scrub_surrogates(api_content) if isinstance(api_content, str) else None,
+                    # Preserved through bulk rewrites (/compress, replace_messages):
+                    # losing the marker here would silently turn mirrored cron
+                    # output back into "the user said this".
+                    _scrub_surrogates(msg.get("mirror_source"))
+                    if isinstance(msg.get("mirror_source"), str) else None,
                 ),
             )
             inserted += 1
@@ -5802,6 +5820,62 @@ class SessionDB:
                     (limit, offset),
                 )
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_last_user_message_at(
+        self,
+        *,
+        exclude_session_id: Optional[str] = None,
+    ) -> Optional[float]:
+        """When the human last actually said something, across all sessions.
+
+        Scoped to this store — one state.db per HERMES_HOME, so for a personal
+        profile the database *is* the conversation.  Deliberately not scoped to
+        a routing peer: peer-exact lookup exists for session *recovery*, where
+        crossing chats is a correctness bug, but "how long since we talked" only
+        needs the profile.  A profile with several chats therefore gets the most
+        recent of any of them.
+
+        Two exclusions carry the whole result:
+
+        * ``source = 'cron'`` — a scheduled run's "user turn" is its job
+          description, not the user talking.
+        * ``mirror_source IS NOT NULL`` — ``gateway/mirror.py`` mirrors cron
+          output into the origin transcript with ``role="user"`` (deliberately:
+          an assistant-role mirror breaks strict-alternation providers, #2221),
+          so the agent's own scheduled messages would otherwise read as the
+          user speaking and a bubble 20 minutes ago would hide a three-day
+          silence.
+
+        The legacy ``[Cron delivery:`` content prefix is also excluded, for
+        rows written before ``mirror_source`` existed.  New rows carry the
+        column, so the prefix wording is free to change.
+
+        Returns a POSIX timestamp, or None when the user has never spoken.
+        """
+        sql = (
+            "SELECT MAX(m.timestamp) FROM messages m "
+            "JOIN sessions s ON s.id = m.session_id "
+            "WHERE m.role = 'user' "
+            "  AND COALESCE(s.source, '') != 'cron' "
+            "  AND m.mirror_source IS NULL "
+            "  AND COALESCE(m.content, '') NOT LIKE '[Cron delivery:%'"
+        )
+        params: List[Any] = []
+        if exclude_session_id:
+            sql += " AND s.id != ?"
+            params.append(str(exclude_session_id))
+        try:
+            with self._lock:
+                row = self._conn.execute(sql, params).fetchone()
+        except sqlite3.Error as e:
+            logger.debug("get_last_user_message_at failed: %s", e)
+            return None
+        if not row or row[0] is None:
+            return None
+        try:
+            return float(row[0])
+        except (TypeError, ValueError):
+            return None
 
     # =========================================================================
     # Utility

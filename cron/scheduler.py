@@ -686,6 +686,21 @@ def _target_matches_origin(origin: dict, platform_name: str, chat_id: str,
     return True
 
 
+def _mirror_label(job: dict, text: str) -> str:
+    """Label a mirrored delivery as the agent's own out-of-band message.
+
+    The mirror is stored with ``role="user"`` (``gateway/mirror.py`` explains
+    why), so without an explicit label the agent reads its own scheduled
+    messages as things the user said and can build no continuity of "what I
+    have already told them".  The previous wording, ``[Cron delivery: X]``,
+    named the *channel* but never the speaker — which is precisely the
+    ambiguity.  Kept in one place so the wording is not duplicated across the
+    three mirror call sites.
+    """
+    name = job.get("name") or job.get("id", "cron")
+    return f"[Your own scheduled message (job: {name}) — not from the user]\n{text}"
+
+
 def _maybe_mirror_cron_delivery(
     job: dict,
     platform_name: str,
@@ -732,7 +747,7 @@ def _maybe_mirror_cron_delivery(
         ok = mirror_to_session(
             platform_name,
             str(chat_id),
-            f"[Cron delivery: {job.get('name') or job.get('id', 'cron')}]\n{text}",
+            _mirror_label(job, text),
             source_label="cron",
             thread_id=thread_id,
             user_id=user_id,
@@ -853,7 +868,7 @@ def _seed_cron_thread_session(
         mirror_to_session(
             platform_name,
             str(chat_id),
-            f"[Cron delivery: {job.get('name') or job.get('id', 'cron')}]\n{text}",
+            _mirror_label(job, text),
             source_label="cron",
             thread_id=str(thread_id),
             user_id="system:cron",
@@ -946,7 +961,7 @@ def _seed_cron_channel_session(
         ok = mirror_to_session(
             platform_name,
             str(chat_id),
-            f"[Cron delivery: {job.get('name') or job.get('id', 'cron')}]\n{text}",
+            _mirror_label(job, text),
             source_label="cron",
             thread_id=None,
             user_id=str(user_id) if user_id else None,
@@ -3364,7 +3379,19 @@ def run_job(
             # Without a workdir, keep cwd context discovery disabled.
             skip_context_files=not bool(_job_workdir),
             load_soul_identity=True,
-            skip_memory=True,  # Cron system prompts would corrupt user representations
+            # Memory access for cron runs.  Default off, preserving the
+            # historical behaviour: a cron "user turn" is a job description,
+            # not something the user said, so an unconstrained cron agent
+            # would file machine text as user facts.
+            #
+            # ``cron.memory_access: true`` opts a profile in to *read* access
+            # (MEMORY.md + USER.md in the prompt, memory-provider tools
+            # available) while USER.md writes stay refused at both the store
+            # and the provider (see agent_init / the obsidian provider).
+            # Profiles whose cron jobs carry a persona need this: without it
+            # the job cannot tell who the user is, and it improvises its own
+            # note-writing around the memory provider.
+            skip_memory=not bool((_cfg.get("cron") or {}).get("memory_access", False)),
             platform="cron",
             session_id=_cron_session_id,
             session_db=_session_db,

@@ -137,6 +137,13 @@ class MemoryStore:
         # Per-turn counter of failed at-capacity consolidation attempts; reset
         # at each turn boundary by reset_consolidation_failures() (#42405).
         self._consolidation_failures = 0
+        # Read/write asymmetry for USER.md.  Some execution contexts (cron)
+        # legitimately need to *read* the user profile so their prompt knows
+        # who the user is, but must never *write* it: their "user turn" is a
+        # job description, not something the user said, so letting them write
+        # would file machine text as user facts.  Cleared by agent_init for
+        # those contexts; MEMORY.md writes stay allowed either way.
+        self.user_profile_writable = True
 
     def reset_consolidation_failures(self) -> None:
         """Reset the per-turn consolidation-failure counter (call at turn start)."""
@@ -985,6 +992,17 @@ def memory_tool(
 
     if target not in {"memory", "user"}:
         return tool_error(f"Invalid target '{target}'. Use 'memory' or 'user'.", success=False)
+
+    # Read-only user profile (cron and friends).  Every action this tool
+    # exposes is a write, so gating the target here is sufficient — the
+    # profile is still injected into the system prompt for reading.  Checked
+    # before the approval gate so a forbidden write is never staged.
+    if target == "user" and not getattr(store, "user_profile_writable", True):
+        return tool_error(
+            "This session can read the user profile but not write it. "
+            "Use target='memory' for what you learned instead.",
+            success=False,
+        )
 
     # --- Batch path -------------------------------------------------------
     if operations:

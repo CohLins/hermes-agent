@@ -555,6 +555,40 @@ class TestMemoryToolDispatcher:
         assert result["success"] is False
         assert "Invalid target" in result["error"]
 
+    def test_read_only_user_profile_refuses_writes(self, store):
+        """Cron-style contexts read USER.md but must not write it.
+
+        Their "user turn" is a job description, so a write would file machine
+        text as a user fact.  MEMORY.md must stay writable in the same context.
+        """
+        store.user_profile_writable = False
+
+        for action, kwargs in (
+            ("add", {"content": "他其实住在火星"}),
+            ("replace", {"content": "新的", "old_text": "旧的"}),
+            ("remove", {"old_text": "旧的"}),
+        ):
+            result = json.loads(
+                memory_tool(action=action, target="user", store=store, **kwargs)
+            )
+            assert result["success"] is False, action
+            assert "not write it" in result["error"], action
+        assert store.user_entries == []
+
+        # …and the same store still records the agent's own memory.
+        ok = json.loads(
+            memory_tool(action="add", target="memory", content="今天学到一件事", store=store)
+        )
+        assert ok["success"] is True
+        assert store.memory_entries == ["今天学到一件事"]
+
+    def test_user_profile_writable_by_default(self, store):
+        result = json.loads(
+            memory_tool(action="add", target="user", content="他住在深圳", store=store)
+        )
+        assert result["success"] is True
+        assert store.user_entries == ["他住在深圳"]
+
     def test_unknown_action(self, store):
         result = json.loads(memory_tool(action="unknown", store=store))
         assert result["success"] is False
