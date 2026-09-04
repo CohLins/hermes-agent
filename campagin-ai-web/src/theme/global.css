@@ -341,11 +341,13 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .composer-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   margin-top: 8px;
   color: var(--muted);
   font-size: 12px;
 }
+/* 提示文案吃掉中间的剩余空间，把模型指示挤到最左、发送按钮留在最右。 */
+.composer-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .chat-thread { max-width: 880px; margin: 8px auto; }
 .message { display: flex; gap: 12px; margin: 24px 0; }
@@ -363,6 +365,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   color: var(--surface);
 }
 .agent-label { margin-bottom: 6px; color: var(--accent); font: 11px var(--font-mono); }
+.agent-usage { color: var(--muted); cursor: help; }
 .bubble p + p { margin-top: 10px; }
 .tool-row { padding: 10px 0; color: var(--muted); font-size: 12px; }
 .tool-row .ant-collapse { background: transparent; border: 0; }
@@ -730,29 +733,115 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .kb-empty { grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--muted); }
 
 /* Markdown 阅读区 */
-.markdown h1 { margin: 24px 0 8px; font-size: 22px; }
-.markdown h2 { margin: 24px 0 8px; font-size: 19px; }
-.markdown h3 { margin: 20px 0 8px; font-size: 16px; }
-.markdown p { margin: 10px 0; color: var(--fg-2); line-height: 1.75; }
-.markdown ul, .markdown ol { margin: 10px 0; padding-left: 20px; color: var(--fg-2); }
-.markdown li { margin: 7px 0; }
+.markdown h1 { margin: 26px 0 10px; font-size: 21px; line-height: 1.35; }
+/* h2 给一条上分隔线：长回答里这是唯一能让人看出「新的一节开始了」的信号。 */
+.markdown h2 {
+  margin: 28px 0 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 17px;
+  line-height: 1.35;
+}
+.markdown > h2:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.markdown h3 { margin: 20px 0 8px; font-size: 14.5px; line-height: 1.4; color: var(--fg); }
+.markdown h4 { margin: 16px 0 6px; font-size: 13px; color: var(--fg-2); }
+
+/*
+ * 正文用 --fg 而不是 --fg-2。整篇都是中灰时，一屏文字读起来非常累，
+ * 而且失去了「次要信息才用灰」的层次手段。
+ */
+.markdown p { margin: 11px 0; color: var(--fg); line-height: 1.78; }
+.markdown strong { color: var(--fg); font-weight: 650; }
+.markdown em { color: var(--fg-2); }
+
+.markdown ul, .markdown ol { margin: 11px 0; padding-left: 22px; color: var(--fg); }
+.markdown li { margin: 6px 0; line-height: 1.72; }
+.markdown li > p { margin: 4px 0; }
+.markdown li::marker { color: var(--muted); }
+/* 嵌套列表收紧，否则三层缩进就跑出气泡了。 */
+.markdown li > ul, .markdown li > ol { margin: 4px 0; padding-left: 18px; }
+.markdown hr { margin: 22px 0; border: 0; border-top: 1px solid var(--border-soft); }
+/* MEDIA: 会被服务端内联成 ![image](data:...) —— 原图可能很大，必须约束。 */
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  margin: 12px 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
 .markdown a { color: var(--accent); }
+/*
+ * 行内 code 做成有色 chip。原来是灰底灰字，和正文糊在一起 —— 接口路径、
+ * 参数名、commit 这类标识必须一眼能从文字里跳出来。
+ */
 .markdown code {
-  padding: 1px 5px;
+  padding: 1.5px 5px;
   border-radius: 4px;
-  background: var(--surface);
-  font: 12px var(--font-mono);
+  background: color-mix(in oklab, var(--accent) 8%, var(--bg));
+  color: color-mix(in oklab, var(--accent) 72%, var(--fg));
+  font: 12.5px var(--font-mono);
+  word-break: break-word;
 }
-.markdown pre {
+
+.markdown a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.markdown a:hover { text-decoration-thickness: 2px; }
+
+/* 代码块：浅色底 + 头部栏（语言标签 + 复制），与整体浅色主题一致。
+   原来是近黑底 var(--fg)，在这个界面里很突兀。 */
+.code-block {
   margin: 16px 0;
-  padding: 16px;
-  overflow: auto;
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
-  background: var(--fg);
-  color: var(--accent-on);
+  overflow: hidden;
+  background: var(--surface);
 }
-.markdown pre code { padding: 0; background: transparent; color: inherit; font: 12px/1.7 var(--font-mono); }
-.markdown table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 6px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in oklab, var(--surface) 60%, var(--border-soft));
+}
+.code-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-2);
+  font: 11.5px var(--font-mono);
+}
+.code-icon { color: var(--muted); opacity: .75; }
+.code-head button {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.code-head button:hover { border-color: var(--border); color: var(--fg); }
+
+.markdown .code-block pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  background: transparent;
+}
+.markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: 12px/1.7 var(--font-mono);
+}
+
+/* 宽表格自己滚，不撑破 880px 的对话列。 */
+.table-scroll { overflow-x: auto; margin: 16px 0; }
+.markdown table { width: 100%; border-collapse: collapse; margin: 0; }
+.markdown thead th { background: var(--surface); font-size: 12px; white-space: nowrap; }
+.markdown tbody tr:nth-child(even) { background: color-mix(in oklab, var(--surface) 50%, var(--bg)); }
+.markdown td { font-size: 13px; vertical-align: top; }
 .markdown th, .markdown td { padding: 8px 12px; border: 1px solid var(--border-soft); text-align: left; }
 .markdown blockquote {
   margin: 16px 0;
@@ -760,6 +849,243 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   border-left: 3px solid var(--accent);
   color: var(--muted);
 }
+/* ---------- mermaid 图表 ---------- */
+
+/* 和 .code-block 同一套外框，但内容区是白底 —— 图自己有配色，
+   再压一层灰底会脏。 */
+.mermaid-block {
+  margin: 16px 0;
+  /* 气泡宽度是 shrink-to-fit 的，图有多宽气泡就多宽 —— 一张 367px 的窄图
+     会把整条回答（包括图下面的文字段落）挤成一根窄条。给个下限撑开它，
+     窄图就在这个宽度里居中。
+     下限不能写 min(560px, 100%)：intrinsic sizing 阶段父宽还没定，百分比
+     按 0 算，min() 直接取 0，等于没写。用 vw 才是确定值。
+     减 340px 是给侧边栏（264）加内外边距留的量，窄屏下也不会溢出。 */
+  min-width: min(560px, calc(100vw - 340px));
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg);
+}
+.mermaid-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px 6px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in oklab, var(--surface) 60%, var(--border-soft));
+}
+.mermaid-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg-2);
+  font-size: 11.5px;
+}
+.mermaid-actions { display: inline-flex; align-items: center; gap: 2px; }
+.mermaid-actions button {
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.mermaid-actions button:hover { border-color: var(--border); color: var(--fg); }
+.mermaid-stale {
+  margin-right: 4px;
+  color: var(--warn);
+  font-size: 11px;
+}
+.mermaid-pending-note { color: var(--muted); font-size: 11px; }
+
+/* 宽图横向滚，窄图居中。
+   mermaid 产出的 SVG 自带 style="max-width: <原始宽度>px"，
+   这里只给 width: 100% —— 两者叠起来正好是 min(容器宽, 原始宽)：
+   宽图缩到容器内看全貌（点「放大」看细节），窄图不会被拉成巨无霸。 */
+.mermaid-canvas {
+  padding: 14px 12px;
+  overflow-x: auto;
+  text-align: center;
+  cursor: zoom-in;
+}
+.mermaid-canvas svg {
+  display: inline-block;
+  width: 100%;
+  height: auto;
+  /* 缩放下限。--mermaid-nat 是 mermaid 自己算的原始宽度：
+     一张 1400px 的流程图塞进 800px 的对话列会缩到 57%，中文标签直接糊掉。
+     min-width 让它最多只缩到 80%，多出来的宽度横向滚动看。
+     窄图不受影响 —— SVG 自带的内联 max-width 就是原始宽度，撑不大。 */
+  min-width: calc(var(--mermaid-nat, 0px) * 0.8);
+}
+/* mermaid 的节点标签走 foreignObject，里面是真 HTML（`<span class="nodeLabel"><p>…</p></span>`），
+   于是 .markdown 的排版规则会全部渗进去 —— `.markdown p { margin: 11px 0; line-height: 1.78 }`
+   把一个 3 行标签从 58.5px 撑到 90px 以上，而 foreignObject 的高度是 mermaid 按
+   line-height 1.5 预先算好的，超出部分直接被裁。这里把继承链掐断。 */
+.mermaid-canvas foreignObject *,
+.mermaid-zoom-canvas foreignObject * {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  /* 字重、斜体不动 —— 标签里的 <b>/<i> 还要能看出效果。 */
+  font-size: inherit;
+  font-family: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+/* 原始尺寸，跟在图类型后面，解释为什么这张图被缩小了。 */
+.mermaid-size {
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+  margin-left: 2px;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+.markdown .mermaid-source {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  background: transparent;
+}
+
+/* 还没画出来时的骨架，三条不等长的横线做呼吸。 */
+.mermaid-block.is-pending { background: var(--surface); }
+.mermaid-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 18px 14px;
+}
+.mermaid-skeleton span {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--border-soft),
+    color-mix(in oklab, var(--border) 55%, var(--bg)),
+    var(--border-soft)
+  );
+  background-size: 220% 100%;
+  animation: mermaid-shimmer 1.4s ease-in-out infinite;
+}
+.mermaid-skeleton span:nth-child(1) { width: 44%; }
+.mermaid-skeleton span:nth-child(2) { width: 72%; }
+.mermaid-skeleton span:nth-child(3) { width: 58%; }
+@keyframes mermaid-shimmer {
+  0% { background-position: 120% 0; }
+  100% { background-position: -120% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mermaid-skeleton span { animation: none; }
+}
+
+/* 语法真的错了：退回代码块，上面补一行错误原文（mermaid 的报错带行号，
+   对着源码能直接看出哪写错了）。 */
+.mermaid-broken { border-color: color-mix(in oklab, var(--danger) 35%, var(--border)); }
+.mermaid-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-warm);
+  color: var(--danger);
+  font: 11.5px/1.6 var(--font-mono);
+  white-space: pre-wrap;
+  /* mermaid 的 Expecting 列表能有十几个 token，限高自己滚。 */
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+/* 放大弹窗 */
+.mermaid-zoom-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-right: 28px;
+}
+.mermaid-zoom-scale { display: inline-flex; gap: 4px; }
+.mermaid-zoom-scale button {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.mermaid-zoom-scale button:hover { color: var(--fg); }
+.mermaid-zoom-scale button.active {
+  border-color: var(--accent);
+  background: var(--surface-warm);
+  color: var(--accent);
+}
+.mermaid-zoom-body { padding: 0; }
+.mermaid-zoom-canvas {
+  max-height: 78vh;
+  overflow: auto;
+  padding: 8px;
+}
+.mermaid-zoom-canvas svg { display: block; margin: 0 auto; }
+.mermaid-zoom-canvas.zoom-fit svg { width: 100%; height: auto; }
+/* 100% / 200% 都以 --mermaid-nat（mermaid 自己算的原始宽度）为基准。
+   内联 max-width 正好等于原始宽度，不 !important 压掉就永远放不大。 */
+.mermaid-zoom-canvas.zoom-100 svg {
+  width: var(--mermaid-nat, 100%);
+  height: auto;
+  max-width: none !important;
+  margin: 0 auto;
+}
+.mermaid-zoom-canvas.zoom-200 svg {
+  width: calc(var(--mermaid-nat, 100%) * 2);
+  height: auto;
+  max-width: none !important;
+  margin: 0;
+}
+
+/* ---------- 数学公式 / 任务列表 / 脚注 ---------- */
+
+/* KaTeX 默认 1.21em，在 13px 正文里显得突兀。 */
+.markdown .katex { font-size: 1.06em; }
+/* 长公式自己横向滚，同表格一个道理。 */
+.markdown .katex-display {
+  margin: 16px 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* KaTeX 渲染失败时留下的原文，标成危险色而不是静默混在正文里。 */
+.markdown .katex-error { color: var(--danger); font-family: var(--font-mono); }
+
+/* GFM 任务列表：去掉圆点，复选框对齐首行。 */
+.markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -19px;
+  padding-left: 0;
+}
+.markdown li > input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin-right: 7px;
+  vertical-align: -1px;
+  accent-color: var(--accent);
+}
+
+/* GFM 脚注区：正文和注释之间要有明确的分界。 */
+.markdown .footnotes {
+  margin-top: 26px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.markdown .footnotes h2 { font-size: 12.5px; border-top: 0; padding-top: 0; }
+.markdown sup a { text-decoration: none; }
+
 .kb-markdown { max-width: 760px; padding-top: 28px; }
 .kb-markdown section { padding: 14px 0; border-top: 1px solid var(--border-soft); }
 .kb-markdown section:first-child { border-top: 0; padding-top: 0; }
@@ -809,3 +1135,681 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   .top-actions .pill { display: none; }
   .brand-tab { padding: 0 14px; }
 }
+
+/* ── 阶段二：真实 agent 对话 ───────────────────────────────────────── */
+
+/* 侧栏标题行要放「新建」按钮，从 .nav-kicker 的纯文本改成两端对齐。 */
+.history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 后台仍在执行的会话：标题前一个呼吸的点。切走之后没有别的可见线索。 */
+.running-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  animation: running-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes running-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(.72); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running-dot { animation: none; }
+}
+
+/* 会话行：标题占满，操作菜单悬浮时才显形，避免长列表视觉噪音。 */
+.chat-item-row { display: flex; align-items: center; gap: 2px; }
+.chat-item-row .ant-btn { flex: none; opacity: 0; transition: opacity .15s; }
+.chat-item-row:hover .ant-btn,
+.chat-item-row .ant-btn:focus-visible { opacity: 1; }
+
+/* 工具与思考的三态。running 用主色，failed 用危险色，done 用成功色。 */
+.tool-state { font: 11px var(--font-mono); }
+.tool-state.running { color: var(--accent); }
+.tool-state.done { color: var(--success); }
+.tool-state.failed { color: var(--danger); }
+
+/* tool.started 的 preview 与 reasoning.available 的整块文本都可能很长。 */
+.tool-preview,
+.reasoning-block,
+.approval-command {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-2);
+  font: 12px/1.6 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+/* 推理摘要：步骤列表，不再是等宽 pre，也不整块交给 Markdown。 */
+.reasoning-note {
+  margin: 8px 0 12px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.reasoning-steps {
+  margin: 0;
+  padding-left: 20px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.reasoning-steps + .reasoning-steps { margin-top: 12px; }
+.reasoning-steps li {
+  margin-bottom: 8px;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.reasoning-steps li::marker { color: var(--muted); font: 11px var(--font-mono); }
+.reasoning-steps strong { color: var(--fg); font-weight: 600; }
+.reasoning-body { margin-top: 4px; }
+.reasoning-body .markdown > :first-child { margin-top: 0; }
+.reasoning-body .markdown > :last-child { margin-bottom: 0; }
+.reasoning-body .markdown p { margin: 0 0 6px; }
+.reasoning-block + .reasoning-block { margin-top: 10px; }
+.approval-command {
+  margin-top: 6px;
+  border-color: var(--accent);
+  background: var(--surface-warm);
+  color: var(--fg);
+}
+
+/* message.delta 逐字追加时，在末尾跟一个闪烁光标。 */
+.markdown.streaming > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  animation: caret-blink 1s step-end infinite;
+}
+
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown.streaming > :last-child::after { animation: none; }
+}
+
+/* 气泡里的 Markdown 不该带知识库正文那么大的首段间距。 */
+.bubble .markdown > :first-child { margin-top: 0; }
+.bubble .markdown > :last-child { margin-bottom: 0; }
+
+.turn-error { margin-top: 10px; color: var(--danger); font-size: 13px; }
+
+/* ── 斜杠命令面板 ──────────────────────────────────────────────────── */
+
+/* 输入框要成为定位上下文，面板贴在它上方（往下弹会被视口底部截掉）。 */
+.composer-wrap { position: relative; }
+
+.slash-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-raise);
+}
+
+/* 明确告诉用户 hermes 原生命令在这条通道无效，避免误用。 */
+.slash-note {
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.slash-note code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--border-soft);
+  font: 11px var(--font-mono);
+}
+
+.slash-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "name label kind" "hint hint hint";
+  gap: 2px 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.slash-item.active { background: var(--surface-warm); }
+.slash-name { grid-area: name; color: var(--accent); font: 13px var(--font-mono); }
+.slash-label { grid-area: label; color: var(--fg); font-size: 13px; }
+.slash-hint {
+  grid-area: hint;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-kind {
+  grid-area: kind;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font: 10px var(--font-mono);
+}
+/* 本地命令会真的执行，模板只是填入输入框 —— 用颜色区分开。 */
+.slash-kind.action { background: var(--surface-warm); color: var(--accent); }
+.slash-kind.template { background: var(--border-soft); color: var(--muted); }
+
+.slash-foot,
+.slash-empty {
+  padding: 8px 10px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.slash-foot { border-top: 1px solid var(--border-soft); margin-top: 4px; }
+
+@media (max-width: 520px) {
+  .slash-item { grid-template-columns: 1fr auto; grid-template-areas: "name kind" "label label" "hint hint"; }
+}
+
+/* ── 能力抽屉（/skills、/tools、/model） ─────────────────────────────── */
+
+.cap-note {
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cap-group + .cap-group { margin-top: 18px; }
+.cap-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font: 11px var(--font-mono);
+  text-transform: uppercase;
+}
+
+.cap-row { padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+.cap-row code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--border-soft);
+  font: 12px var(--font-mono);
+}
+.cap-row p { margin-top: 6px; color: var(--fg-2); font-size: 12px; line-height: 1.6; }
+.cap-sub { color: var(--muted); font-size: 11px; }
+
+/* 未启用的工具集压暗，一眼区分 agent 实际拿到了什么。 */
+.cap-row.toolset { opacity: .5; }
+.cap-row.toolset.on { opacity: 1; }
+.cap-row.toolset .ant-tag { margin-left: 8px; }
+
+.cap-features { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; }
+.cap-features .ant-tag { margin: 0; font: 11px var(--font-mono); }
+
+/* ── 输入框贴底固定 ────────────────────────────────────────────────── */
+
+/*
+ * 滚动容器是 .main（.app 是 100vh + overflow:hidden），所以用 sticky 而不是
+ * fixed —— fixed 会脱离 1320px 内容列的居中约束，还要手算侧栏 264px 的偏移。
+ * sticky 贴在 scrollport 底部，滚到底时自然落回 .chat-thread 内。
+ */
+.chat-thread .composer-wrap {
+  position: sticky;
+  bottom: 0;
+  /* 高于气泡与工具折叠块，但低于 .slash-menu(20) 和抽屉遮罩。 */
+  z-index: 5;
+  margin-top: 16px;
+  /* 把 .content 的 32px 底部留白吃掉，贴到视口底再自己留呼吸空间。 */
+  padding-bottom: 20px;
+  background: var(--bg);
+}
+
+/* 上方加渐变，滚动内容不会硬切在输入框边缘。 */
+.chat-thread .composer-wrap::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 24px;
+  background: linear-gradient(to top, var(--bg), transparent);
+  pointer-events: none;
+}
+
+/* 空态的输入框在 .welcome 里居中，不参与贴底。 */
+
+/* ── 输入框里的命令提示条 ──────────────────────────────────────────── */
+
+.composer-cmd {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  border: 1px solid color-mix(in oklab, var(--accent) 30%, transparent);
+}
+.composer-cmd code {
+  color: var(--accent);
+  font: 12px var(--font-mono);
+  font-weight: 600;
+}
+.composer-cmd-label { color: var(--fg); font-size: 12px; }
+.composer-cmd-note { color: var(--muted); font-size: 11px; }
+
+/* 不认识的命令：换成中性灰 + 警示色文案，明确「按了也不会发出去」。 */
+.composer-cmd.unknown {
+  background: var(--border-soft);
+  border-color: var(--border);
+}
+.composer-cmd.unknown code { color: var(--fg-2); }
+.composer-cmd.unknown .composer-cmd-label { color: var(--danger); }
+
+/* 输入的是命令时，正文也换等宽字体，和普通提问区分开。 */
+.composer textarea.ant-input.is-command {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* ── 模型指示 / 切换器 ─────────────────────────────────────────────── */
+
+.model-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 240px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg-2);
+  font: 11px var(--font-mono);
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.model-pick:hover:not(:disabled) { border-color: var(--accent); color: var(--fg); }
+.model-pick:disabled { cursor: not-allowed; opacity: .55; }
+/* 没配 model_routes 时降级成纯展示：去掉按钮态，保留 tooltip 说明怎么开启。 */
+.model-pick.static { cursor: help; }
+.model-pick .anticon { font-size: 9px; opacity: .6; }
+
+.model-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+/* 下拉项里的第二行：alias 对应的真实模型名。 */
+.model-sub {
+  display: block;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+
+@media (max-width: 520px) {
+  .composer-hint { display: none; }
+}
+
+/* ── 语法着色 ─────────────────────────────────────────────────────────
+ * 不引 highlight.js 自带主题（又一个第三方 CSS + 深浅主题冲突），
+ * 自己按现有 token 写一套浅色配色。
+ */
+.hljs-comment, .hljs-quote { color: var(--muted); font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag { color: #8250df; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #1a7f37; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: #953800; }
+.hljs-title, .hljs-title.class_, .hljs-title.function_, .hljs-section { color: #0550ae; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: #116329; }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title { color: #0a6e63; }
+.hljs-meta, .hljs-meta .hljs-keyword { color: var(--muted); }
+.hljs-deletion { color: var(--danger); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+.hljs-link { color: var(--accent); }
+
+/* ── 消息列与 hover 操作条 ─────────────────────────────────────────── */
+
+/* 气泡与操作条竖排；用户侧右对齐。 */
+.msg-col { display: flex; flex-direction: column; min-width: 0; max-width: 100%; }
+.message.user .msg-col { align-items: flex-end; }
+
+/* 助手气泡放宽：76% 装代码块和表格太窄。用户气泡保持 76%。 */
+.message.user .msg-col { max-width: 76%; }
+.message .msg-col { max-width: 92%; }
+.msg-col .bubble { max-width: 100%; }
+
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity .15s;
+}
+/* hover 显形；focus-within 保证键盘可达（同 .chat-item-row 的处理）。 */
+.message:hover .msg-actions,
+.msg-actions:focus-within { opacity: 1; }
+
+.msg-actions .ant-btn { color: var(--muted); }
+.msg-actions .ant-btn:hover:not(:disabled) { color: var(--fg); }
+.msg-time { margin-left: 4px; color: var(--muted); font: 11px var(--font-mono); }
+
+/* ── 气泡占位：三点跳动 ───────────────────────────────────────────── */
+
+.typing { display: inline-flex; gap: 3px; }
+.typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: typing-bounce 1.2s ease-in-out infinite;
+}
+.typing i:nth-child(2) { animation-delay: .15s; }
+.typing i:nth-child(3) { animation-delay: .3s; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { opacity: .3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing i { animation: none; opacity: .6; }
+}
+
+/* 工具摘要里的次级数字（工具耗时之和），与总耗时区分。 */
+.tool-sub { color: var(--muted); font: 11px var(--font-mono); }
+.tool-state .anticon { margin-right: 2px; }
+
+/* 终态但没有文字回答时，气泡里的说明。气泡本身不再消失（那会造成布局跳动）。 */
+.agent-empty { color: var(--muted); font-size: 13px; }
+
+@media (max-width: 820px) {
+  .message.user .msg-col { max-width: 88%; }
+  .message .msg-col { max-width: 100%; }
+  /* 触屏没有 hover，操作条常显。 */
+  .msg-actions { opacity: 1; }
+}
+
+/* ── 一键确认（agent 在正文里等口头确认时出现） ───────────────────────
+ * 与 approval.request 的审批弹窗是两码事：那是 hermes 的审批机制，
+ * 这里是 SOUL.md 要求模型「执行终端命令前等明确确认」而产生的对话式确认。
+ */
+.quick-replies {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--accent) 26%, transparent);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+}
+.quick-replies-hint { color: var(--muted); font-size: 11px; }
+
+@media (max-width: 520px) {
+  .quick-replies-hint { display: none; }
+}
+
+/* ── 进行中的实时进度面板 ─────────────────────────────────────────────
+ * 长任务是常态（max_turns 90 / gateway_timeout 1800），这几分钟里必须一直
+ * 有变化的信息。进度条是不确定态：SSE 没有总量信息，不能编百分比。
+ */
+.run-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* 没有回答内容时气泡会被撑得很窄，脉冲条只剩一个小方块。给个下限。 */
+  min-width: min(340px, 100%);
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+/* 回答开始流出后压成一行，把位置让给正文。 */
+.run-progress.slim {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.rp-head { display: flex; align-items: center; gap: 12px; }
+.rp-elapsed { flex: none; color: var(--accent); font: 11px var(--font-mono); }
+
+/* 不确定态脉冲：只表示「还在动」，不表示进度多少。 */
+.rp-bar {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-soft);
+  overflow: hidden;
+}
+.rp-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 34%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: rp-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes rp-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
+}
+
+.rp-now { display: flex; align-items: baseline; gap: 8px; color: var(--fg); }
+.rp-now code,
+.rp-recent-row code {
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--border-soft);
+  font: 12px var(--font-mono);
+}
+/* 参数预览单行截断：terminal 的命令行动辄一两百字符。 */
+.rp-now em,
+.rp-recent-row em {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.rp-tool-for { flex: none; color: var(--accent); font-size: 11px; }
+.rp-stat { color: var(--fg-2); font-size: 12px; }
+.rp-counts { font-family: var(--font-mono); font-size: 11px; }
+.rp-failed { color: var(--danger); }
+
+.rp-recent { border-top: 1px solid var(--border-soft); padding-top: 8px; }
+.rp-recent-head { margin-bottom: 4px; color: var(--muted); font: 11px var(--font-mono); }
+.rp-recent-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--fg-2);
+}
+.rp-mark { flex: none; width: 12px; color: var(--success); }
+.rp-recent-row.failed .rp-mark { color: var(--danger); }
+.rp-recent-row .num { flex: none; color: var(--muted); font-size: 11px; }
+
+.rp-narration {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.rp-stall {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-warm);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-bar::after { animation: none; width: 100%; opacity: .4; }
+}
+
+/* ── 工具明细紧凑表 ───────────────────────────────────────────────────
+ * 新 class：.detail-block / .tool-preview 被 DetailDrawer 与定时任务页共用。
+ */
+.tool-table { padding: 4px 0 0; }
+
+.tool-table-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+.tt-chip {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg-2);
+  font: 11px var(--font-mono);
+  cursor: pointer;
+}
+.tt-chip:hover { border-color: var(--fg-2); }
+.tt-chip.active { border-color: var(--accent); background: var(--surface-warm); color: var(--accent); }
+.tt-chip.danger { color: var(--danger); border-color: color-mix(in oklab, var(--danger) 40%, transparent); }
+.tt-chip .num { opacity: .7; }
+
+/* 限高内部滚动：83 条 × 26px 也不会再撑开页面。 */
+.tool-table-list {
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.tt-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.tt-row:hover { background: var(--surface); }
+.tt-row.open { background: var(--surface-warm); }
+.tt-mark { flex: none; width: 12px; color: var(--success); font-size: 11px; }
+.tt-row.failed .tt-mark { color: var(--danger); }
+.tt-name {
+  flex: none;
+  min-width: 104px;
+  color: var(--fg);
+  font: 12px var(--font-mono);
+}
+.tt-cost { flex: none; width: 52px; color: var(--muted); font-size: 11px; }
+.tt-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+}
+
+.tt-full {
+  margin: 0;
+  padding: 10px 12px 10px 34px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--fg-2);
+  font: 11px/1.7 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tt-empty { padding: 14px; color: var(--muted); font-size: 12px; text-align: center; }
+
+@media (max-width: 520px) {
+  .tt-name { min-width: 72px; }
+  .tt-preview { display: none; }
+}
+
+/* ── 气泡里的 Markdown 排版收紧 ────────────────────────────────────────
+ * .markdown 被知识库正文与 skill 详情共用，那里是阅读版式（宽松）；
+ * 对话气泡宽度有限、上下文密集，只在气泡内收紧，不动全局。
+ */
+.bubble .markdown h2 { margin-top: 22px; padding-top: 12px; font-size: 16px; }
+.bubble .markdown h3 { margin-top: 16px; font-size: 14px; }
+.bubble .markdown p { margin: 9px 0; }
+.bubble .markdown ul, .bubble .markdown ol { margin: 9px 0; }
+.bubble .markdown .code-block { margin: 12px 0; }
+.bubble .markdown blockquote { margin: 12px 0; }
+.bubble .markdown > :first-child { margin-top: 0; }
+.bubble .markdown > :last-child { margin-bottom: 0; }
+
+/* 引用块：从只有左边框改成浅底 + 左边框，长回答里的「注意/前提」才立得住。 */
+.markdown blockquote {
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface);
+  color: var(--fg-2);
+}
+.markdown blockquote p { margin: 4px 0; color: var(--fg-2); }

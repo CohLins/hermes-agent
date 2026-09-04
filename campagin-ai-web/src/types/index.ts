@@ -252,12 +252,6 @@ export interface KnowledgeFolder {
 
 /* ---------- 对话 ---------- */
 
-export interface ChatSession {
-  id: string;
-  title: string;
-  group: "今天" | "最近 7 天" | "更早";
-}
-
 /** 首页的问题建议卡片。 */
 export interface ChatSuggestion {
   id: string;
@@ -267,18 +261,4 @@ export interface ChatSuggestion {
   desc: string;
   /** 该建议会用到的能力与数据源。 */
   meta: string;
-}
-
-export interface ChatToolCall {
-  name: string;
-  range: string;
-  result: string;
-}
-
-export interface ChatAnswer {
-  label: string;
-  paragraphs: string[];
-  tools: ChatToolCall[];
-  elapsed: string;
-  evidence: { label: string; to: string }[];
 }

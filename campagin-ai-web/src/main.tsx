@@ -6,6 +6,8 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { antdTheme } from "./theme/antdTheme";
 import "antd/dist/reset.css";
+// KaTeX 自带样式；放在 global.css 之前，字号/颜色的收敛在 global 里做。
+import "katex/dist/katex.min.css";
 import "./theme/global.css";
 
 const root = document.getElementById("root");

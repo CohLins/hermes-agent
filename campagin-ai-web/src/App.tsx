@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Skeleton } from "antd";
 import AppShell from "@/layout/AppShell";
+import SessionProvider from "@/contexts/SessionProvider";
 
 // 页面按路由懒加载：antd 与 Markdown 渲染器不会全部压进首屏 chunk。
 const ChatPage = lazy(() => import("@/pages/chat"));
@@ -23,7 +24,8 @@ function PageFallback() {
 
 export default function App() {
   return (
-    <Routes>
+    <SessionProvider>
+      <Routes>
       <Route element={<AppShell />}>
         <Route
           index
@@ -91,6 +93,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
-    </Routes>
+      </Routes>
+    </SessionProvider>
   );
 }

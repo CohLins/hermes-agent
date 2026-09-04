@@ -870,10 +870,22 @@ PLATFORM_HINTS = {
         "— when a sticker is the right response, use yb_send_sticker."
     ),
     "api_server": (
-        "You're responding through an API server. The rendering layer is unknown — "
-        "assume plain text. No markdown formatting (no asterisks, bullets, headers, "
-        "code fences). Treat this like a conversation, not a document. Keep responses "
-        "brief and natural."
+        "You're responding through the Hermes API server (OpenAI-compatible). "
+        "Clients on this endpoint are chat UIs that render Markdown, so use it: "
+        "headings, bold/italic, bullet and numbered lists, tables, blockquotes, "
+        "inline code, and fenced code blocks with a language tag (```yaml, ```bash, "
+        "```sql, ```json) all render, with syntax highlighting. "
+        "Prefer structure over dense paragraphs for any comparison, set of steps, "
+        "key/value summary, or code/config/log excerpt. Identifiers — API paths, "
+        "parameter names, class/method names, file paths, commit hashes, config keys, "
+        "topic names — belong in inline code, not bare in prose. Use real headings "
+        "rather than plain-text numbering like '1.' or Chinese enumerators as section "
+        "titles. Keep the prose brief and conversational; let the structure carry the "
+        "detail. "
+        "Local images can be delivered with MEDIA:/absolute/path/to/file — small "
+        "images are inlined as Markdown data URLs; non-image paths are left as-is. "
+        "A client that genuinely needs plain text can say so through the request's "
+        "`instructions` field, which is appended to this prompt."
     ),
     "webui": (
         "You are in the Hermes WebUI, a browser-based chat interface. "
