@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "skills": {
+    "adapt": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/adapt/SKILL.md",
+      "computedHash": "8e80d852ffb5f61cdfb4ee85f4bac315739061cf2b85c1dffd3e275b74005f5a"
+    },
+    "animate": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/animate/SKILL.md",
+      "computedHash": "7002b020273ffe471508bea7413d359a235df7a32a7c7deea57cc2e9a17046e4"
+    },
+    "audit": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/audit/SKILL.md",
+      "computedHash": "266c6469c19df55d88e3d027d6f167ca5c3626d8f2b4bfc7fac83b571fa8b92b"
+    },
+    "bolder": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/bolder/SKILL.md",
+      "computedHash": "a77a656196e2b89f518cd52b308b33e1fd7e92fccb455a2083f9fd3f9bd11ea0"
+    },
+    "brief": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/brief/SKILL.md",
+      "computedHash": "f8ab2db99f4ee429b9298e65865f08a781f3f1246d7eec588ca6241ce03e0732"
+    },
+    "clarify": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/clarify/SKILL.md",
+      "computedHash": "49ac88399ac505131c50dbbc49c427b29583cfea7a5ed0ce93067862f30cb0c0"
+    },
+    "colorize": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/colorize/SKILL.md",
+      "computedHash": "e41570c0eec563c40f28433749cfadc2b5c9e92e86b0c656bf4358fd6965b8a5"
+    },
+    "craft": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/craft/SKILL.md",
+      "computedHash": "3f65c35e9d6c18e7fe2775ba89e661346422a39305cd096af5a4cb800eb34a69"
+    },
+    "critique": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/critique/SKILL.md",
+      "computedHash": "90c2317d5aa5e7c08afddaeb6cdeb68b37e9827af87895a22175197e9ae6875f"
+    },
+    "delight": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/delight/SKILL.md",
+      "computedHash": "85c1205734e9712799d633e1ec4ec652d3aacda5675debf45351257d415ac446"
+    },
+    "distill": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/distill/SKILL.md",
+      "computedHash": "e6985c8e0a139568fb985b43e45b14e50b602e3944882ce8165ad7c9006f7fae"
+    },
+    "extract": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/extract/SKILL.md",
+      "computedHash": "4a1eade74041a70058b1f282908a3ca6940c1a10757d08eb5e5fbff6a5361ffe"
+    },
+    "finalize": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/finalize/SKILL.md",
+      "computedHash": "a000c7a7945dce1c209a0b93ddad65172d7ac4115ae53b05d3bb3ef0ba3e4c2f"
+    },
+    "friction-log": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/friction-log/SKILL.md",
+      "computedHash": "10b23c620057290f954105dca5c158172f8bbddbba532f0a942f188f83ecfaf8"
+    },
+    "harden": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/harden/SKILL.md",
+      "computedHash": "c11e10aa39aa1cdc923e0d51b8edff17f884fcc1428ae82f89ffd36724df5725"
+    },
+    "heuristic": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/heuristic/SKILL.md",
+      "computedHash": "15f4cd2b83632c4bc8d325d69344d443be8c2b5cf6e0c2b95873b4a888b37a81"
+    },
+    "polish": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/polish/SKILL.md",
+      "computedHash": "6cb87b4f1db0d0d52532bba1f1cd32c95494b2e868a3869c54415d9306222c69"
+    },
+    "quieter": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/quieter/SKILL.md",
+      "computedHash": "95c963d604cea933f884c4c2f1486ce043b50542a4f85610236cd3149902f991"
+    },
+    "redesign": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/redesign/SKILL.md",
+      "computedHash": "0cea2834a75379dceca57ec19db6c765c00d7ef845331034dd5531485f2ef882"
+    },
+    "remember": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/remember/SKILL.md",
+      "computedHash": "cf48444e0693548508eaa349d1b306e61d643a0adb9e1bd29827fbc774b50ba3"
+    },
+    "sddesign": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/sddesign/SKILL.md",
+      "computedHash": "19a260021b0b6aa3fa88645b39c0151a3aa878a6a9860e0cf26d5fe6991b078b"
+    },
+    "shape": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/shape/SKILL.md",
+      "computedHash": "ca88eb998101d6efa798f7d8a7f49d4486ad0f8db9e42d679d5d70cd19799e07"
+    },
+    "start": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/start/SKILL.md",
+      "computedHash": "97a3eec685c2bd33bb931ee586c958767ae19944f8232e223394c0ec2cb361f8"
+    },
+    "tokens": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/tokens/SKILL.md",
+      "computedHash": "b4d7b96ad93301548ec1528175f9a710ad309304f3876eeba23b8e33ea10405e"
+    },
+    "typeset": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/typeset/SKILL.md",
+      "computedHash": "e9c392e7839dbf021045441418907b5c0d94f8b55914acbe590e3a15c3a5b3d1"
+    },
+    "ui-craft": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": "skills/ui-craft/SKILL.md",
+      "computedHash": "e09de6e10f95e0fbdf406314ebe42dd89d6901d9b2630f083f56d0a8d09a6f8e"
+    },
+    "ui-craft-dense-dashboard": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": "skills/ui-craft-dense-dashboard/SKILL.md",
+      "computedHash": "d0a71ccee90de5638fa4630e8feba31e17f311b4e394412cf3813eacc1c28667"
+    },
+    "ui-craft-editorial": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": "skills/ui-craft-editorial/SKILL.md",
+      "computedHash": "a1c3c74982d5ec792e442d28bd8ed8e569f4493a0fb2567febb6c5aa70d3c616"
+    },
+    "ui-craft-minimal": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": "skills/ui-craft-minimal/SKILL.md",
+      "computedHash": "e4c64714c9472885ce38849a470eadfe623e405e783aede8f1a1d1c08e157f1f"
+    },
+    "unhappy": {
+      "source": "educlopez/ui-craft",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/unhappy/SKILL.md",
+      "computedHash": "d03b43a53494c2c1ee75ebf0fa9bdc08ebffb19b4e95e69d00dbf7c9ba68a88f"
+    }
+  }
+}

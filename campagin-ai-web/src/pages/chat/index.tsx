@@ -290,11 +290,12 @@ export default function ChatPage() {
             */}
             {
               <div className="message">
-                <div className="user-avatar">{PRODUCT_MARK}</div>
                 <div className="msg-col">
                   <div className="bubble agent">
-                    <div className="agent-label">
-                      {PHASE_LABEL[turn.phase]}
+                    <div className="agent-header">
+                      <span className="agent-logo" aria-hidden="true">{PRODUCT_MARK}</span>
+                      <span className="agent-name">Atlas Agent</span>
+                      <span className={`agent-phase ${turn.phase}`}>{PHASE_LABEL[turn.phase]}</span>
                       {turn.usage?.total_tokens ? (
                         <>
                           {"　"}

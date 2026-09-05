@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { LoadingOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined } from "@ant-design/icons";
 import { countByTool } from "./format";
 import type { ToolTrace } from "@/types/agent";
 
@@ -99,8 +99,8 @@ export default function ToolTable({
                   onClick={() => setExpanded(open ? null : tool.id)}
                   title={tool.preview ?? tool.tool}
                 >
-                  <span className="tt-mark">
-                    {tool.done ? (tool.failed ? "✗" : "✓") : <LoadingOutlined />}
+                  <span className="tt-mark" aria-label={tool.done ? (tool.failed ? "执行失败" : "执行完成") : "执行中"}>
+                    {tool.done ? (tool.failed ? <CloseCircleOutlined /> : <CheckCircleOutlined />) : <LoadingOutlined />}
                   </span>
                   <code className="tt-name">{tool.tool}</code>
                   <span className="tt-cost num">

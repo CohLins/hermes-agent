@@ -1,4 +1,4 @@
-import { LoadingOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import { formatElapsed, useElapsed } from "@/hooks/useElapsed";
 import {
   STALL_THRESHOLD_MS,
@@ -112,7 +112,7 @@ export default function RunProgress({ turn }: { turn: Turn }) {
             <div className="rp-recent-head">最近</div>
             {recent.map((tool) => (
               <div className={`rp-recent-row${tool.failed ? " failed" : ""}`} key={tool.id}>
-                <span className="rp-mark">{tool.failed ? "✗" : "✓"}</span>
+                <span className="rp-mark">{tool.failed ? <CloseCircleOutlined /> : <CheckCircleOutlined />}</span>
                 <code>{tool.tool}</code>
                 <em>{tool.preview ?? ""}</em>
                 <span className="num">

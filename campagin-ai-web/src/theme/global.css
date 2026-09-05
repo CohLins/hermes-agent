@@ -1,27 +1,31 @@
 /* 设计 token 与原型 index.html:6 一致；antd 覆盖不到的部分继续用 CSS 变量。 */
 :root {
-  --bg: #fff;
-  --surface: #f7f8fa;
-  --surface-warm: #fff1f0;
-  --fg: #1f1f1f;
-  --fg-2: #4b5563;
-  --muted: #697386;
-  --border: #d9dce3;
-  --border-soft: #eef0f4;
-  --accent: #d32029;
-  --accent-on: #fff;
-  --accent-hover: color-mix(in oklab, var(--accent), black 8%);
-  --success: #22a06b;
-  --warn: #faad14;
-  --danger: #cf1322;
-  --font-display: "Ant Sans", "Alibaba PuHuiTi", Inter, Arial, sans-serif;
-  --font-body: "Ant Sans", "Alibaba PuHuiTi", Inter, Arial, sans-serif;
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-warm: #eef6ff;
+  --surface-raised: #ffffff;
+  --assistant-surface: transparent;
+  --user-surface: #f1f1ef;
+  --tool-surface: #f7f7f5;
+  --fg: #37352f;
+  --fg-2: #5f5e5b;
+  --muted: #787774;
+  --border: #e9e9e7;
+  --border-soft: #f0f0ee;
+  --accent: #2383e2;
+  --accent-on: #ffffff;
+  --accent-hover: #0b6dcc;
+  --success: #0f7b6c;
+  --warn: #cb912f;
+  --danger: #d44c47;
+  --font-display: "Inter", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-body: "Inter", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --focus-ring: 0 0 0 4px rgba(211, 32, 41, 0.22);
-  --shadow-raise: 0 18px 42px rgba(31, 31, 31, 0.1);
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --focus-ring: 0 0 0 3px rgba(35, 131, 226, 0.22);
+  --shadow-raise: 0 8px 24px rgba(15, 15, 15, 0.08);
 }
 
 * { box-sizing: border-box; }
@@ -34,8 +38,12 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.52 var(--font-body);
+  font: 14px/1.55 var(--font-body);
 }
+
+button, input, textarea { font: inherit; }
+button { -webkit-tap-highlight-color: transparent; }
+::selection { background: rgba(142, 230, 180, 0.28); color: var(--fg); }
 
 h1, h2, h3, p { margin: 0; }
 h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
@@ -57,7 +65,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--surface);
+  background: #f1f1ef;
   border-right: 1px solid var(--border);
 }
 
@@ -73,12 +81,12 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-on);
-  font-weight: 700;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: var(--fg);
+  color: #fff;
+  font-weight: 750;
 }
 
 .brand-name { font-size: 16px; font-weight: 650; }
@@ -150,13 +158,13 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   position: sticky;
   top: 0;
   z-index: 3;
-  height: 68px;
+  height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in oklab, var(--bg) 94%, transparent);
+  background: color-mix(in oklab, var(--bg) 96%, transparent);
   backdrop-filter: blur(12px);
 }
 .crumb { display: flex; gap: 8px; color: var(--muted); font-size: 13px; }
@@ -204,7 +212,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg);
+  background: var(--surface);
   text-align: left;
   cursor: pointer;
 }
@@ -215,7 +223,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .meta-row { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
 
 .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
-.metric { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg); }
+.metric { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
 .metric-label { color: var(--muted); font-size: 12px; }
 .metric-value { margin-top: 5px; font: 700 25px var(--font-mono); }
 .metric-change { margin-top: 7px; color: var(--success); font-size: 11px; }
@@ -223,7 +231,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg);
+  background: var(--surface);
   overflow: hidden;
 }
 .panel-head {
@@ -292,7 +300,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--bg);
+  background: var(--surface);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s;
@@ -326,11 +334,12 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .composer {
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg);
+  border-radius: 20px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.24);
   text-align: left;
 }
-.composer:focus-within { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 14px 36px rgba(0, 0, 0, 0.28); }
 .composer textarea.ant-input {
   padding: 0;
   border: 0;
@@ -349,25 +358,60 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 /* 提示文案吃掉中间的剩余空间，把模型指示挤到最左、发送按钮留在最右。 */
 .composer-hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.chat-thread { max-width: 880px; margin: 8px auto; }
-.message { display: flex; gap: 12px; margin: 24px 0; }
+.chat-thread { max-width: 960px; margin: 8px auto; }
+.message { display: flex; gap: 12px; margin: 30px 0; }
 .message.user { justify-content: flex-end; }
+.message.user .bubble { box-shadow: none; }
+.bubble { transition: border-color .2s, background-color .2s, box-shadow .2s; }
 .bubble {
   max-width: 76%;
   padding: 14px 16px;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   border-radius: 14px 14px 14px 3px;
+  background: var(--assistant-surface);
 }
 .message.user .bubble {
-  border-radius: 14px 14px 3px 14px;
-  background: var(--fg);
-  border-color: var(--fg);
-  color: var(--surface);
+  border-radius: 10px 10px 3px 10px;
+  background: var(--user-surface);
+  border-color: var(--border);
+  color: var(--fg);
 }
+.agent-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.agent-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 6px;
+  background: var(--fg);
+  color: #fff;
+  font: 700 14px/1 var(--font-body);
+}
+.agent-name { color: var(--fg); font-size: 15px; font-weight: 700; }
+.agent-phase {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--tool-surface);
+  color: var(--muted);
+  font: 10px var(--font-mono);
+}
+.agent-phase.running { background: #eaf3ff; color: #1769aa; }
+.agent-phase.completed { background: #e8f5f1; color: var(--success); }
+.agent-phase.failed, .agent-phase.cancelled { background: #fdf0ef; color: var(--danger); }
 .agent-label { margin-bottom: 6px; color: var(--accent); font: 11px var(--font-mono); }
 .agent-usage { color: var(--muted); cursor: help; }
 .bubble p + p { margin-top: 10px; }
-.tool-row { padding: 10px 0; color: var(--muted); font-size: 12px; }
+.tool-row { position: relative; padding: 10px 0; color: var(--muted); font-size: 12px; }
+.tool-row::before { display: none; }
 .tool-row .ant-collapse { background: transparent; border: 0; }
 .evidence { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .evidence-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
@@ -559,7 +603,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg);
+  background: var(--surface);
 }
 .project-card:hover { border-color: var(--accent); box-shadow: 0 8px 24px rgba(31, 31, 31, 0.07); }
 .project-card-head {
@@ -611,7 +655,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   padding: 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  background: var(--bg);
+  background: var(--surface);
   text-align: left;
   cursor: pointer;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
@@ -862,19 +906,20 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
      按 0 算，min() 直接取 0，等于没写。用 vw 才是确定值。
      减 340px 是给侧边栏（264）加内外边距留的量，窄屏下也不会溢出。 */
   min-width: min(560px, calc(100vw - 340px));
-  border: 1px solid var(--border-soft);
+  border: 1px solid #e4e4e1;
   border-radius: var(--radius-md);
   overflow: hidden;
-  background: var(--bg);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04);
 }
 .mermaid-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 6px 10px 6px 12px;
-  border-bottom: 1px solid var(--border-soft);
-  background: color-mix(in oklab, var(--surface) 60%, var(--border-soft));
+  padding: 8px 12px;
+  border-bottom: 1px solid #e9e9e7;
+  background: #fafaf9;
 }
 .mermaid-kind {
   display: inline-flex;
@@ -906,8 +951,9 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
    这里只给 width: 100% —— 两者叠起来正好是 min(容器宽, 原始宽)：
    宽图缩到容器内看全貌（点「放大」看细节），窄图不会被拉成巨无霸。 */
 .mermaid-canvas {
-  padding: 14px 12px;
+  padding: 18px 16px;
   overflow-x: auto;
+  background: #ffffff;
   text-align: center;
   cursor: zoom-in;
 }
@@ -1493,13 +1539,13 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
  * 不引 highlight.js 自带主题（又一个第三方 CSS + 深浅主题冲突），
  * 自己按现有 token 写一套浅色配色。
  */
-.hljs-comment, .hljs-quote { color: var(--muted); font-style: italic; }
-.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag { color: #8250df; }
-.hljs-string, .hljs-regexp, .hljs-addition { color: #1a7f37; }
-.hljs-number, .hljs-symbol, .hljs-bullet { color: #953800; }
-.hljs-title, .hljs-title.class_, .hljs-title.function_, .hljs-section { color: #0550ae; }
-.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: #116329; }
-.hljs-type, .hljs-built_in, .hljs-class .hljs-title { color: #0a6e63; }
+.hljs-comment, .hljs-quote { color: #8b8a86; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag { color: #9b51e0; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #16825d; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: #c56a27; }
+.hljs-title, .hljs-title.class_, .hljs-title.function_, .hljs-section { color: #1769aa; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: #0f7b6c; }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title { color: #a15c2f; }
 .hljs-meta, .hljs-meta .hljs-keyword { color: var(--muted); }
 .hljs-deletion { color: var(--danger); }
 .hljs-emphasis { font-style: italic; }
@@ -1514,7 +1560,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 
 /* 助手气泡放宽：76% 装代码块和表格太窄。用户气泡保持 76%。 */
 .message.user .msg-col { max-width: 76%; }
-.message .msg-col { max-width: 92%; }
+.message .msg-col { max-width: 100%; width: 100%; }
 .msg-col .bubble { max-width: 100%; }
 
 .msg-actions {
@@ -1600,12 +1646,12 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* 没有回答内容时气泡会被撑得很窄，脉冲条只剩一个小方块。给个下限。 */
   min-width: min(340px, 100%);
-  padding: 12px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--tool-surface);
+  box-shadow: none;
   font-size: 13px;
 }
 
@@ -1754,7 +1800,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 }
 .tt-row:hover { background: var(--surface); }
 .tt-row.open { background: var(--surface-warm); }
-.tt-mark { flex: none; width: 12px; color: var(--success); font-size: 11px; }
+.tt-mark { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 16px; color: var(--success); font-size: 13px; }
 .tt-row.failed .tt-mark { color: var(--danger); }
 .tt-name {
   flex: none;

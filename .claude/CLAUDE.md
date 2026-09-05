@@ -14,3 +14,7 @@
 - 关于本项目的问题，积极查询hermes-mcp文档，在结合代码回答
 - python 虚拟环境：~/.venvs/automation/ 项目启动虚拟环境~/.venvs/hermes python版本3.11:/opt/homebrew/bin/python3.11
 - feishu profile下skill： ~/.hermes/profiles/feishu/。weixin profile下skill： ~/.hermes/profiles/weixin/
+
+## subagent规则
+- 任何时候不要轻易的起多Agent，要节约token，不要偷懒大部分任务都可以主agent自己干，主agent没事的时候，也都不要起Subagent，计划起>=3个agent的时候都需要询问我
+- subagent仅针对任务隔离上下文无关的时候才使用，同项目内探索上下文共享这种 不要subagent
