@@ -3,7 +3,7 @@ import { Button, Input, Tooltip } from "antd";
 import { ArrowUpOutlined, StopOutlined } from "@ant-design/icons";
 import SlashMenu from "./SlashMenu";
 import { filterCommands, parseCommand, slashQuery, type SlashCommand } from "./slashCommands";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, ReactNode, Ref } from "react";
 
 interface Props {
   value: string;
@@ -17,6 +17,10 @@ interface Props {
   hint: string;
   /** 底栏左侧的模型指示 / 切换器。 */
   modelSlot?: ReactNode;
+  /** 对话页用于计算粘性输入框的安全底距。 */
+  composerRef?: Ref<HTMLDivElement>;
+  /** 贴在输入框上方的局部悬浮操作。 */
+  floatingAction?: ReactNode;
 }
 
 /** 输入框里那条命令提示条的内容。 */
@@ -84,6 +88,8 @@ export default function Composer({
   placeholder,
   hint,
   modelSlot,
+  composerRef,
+  floatingAction,
 }: Props) {
   const [dismissed, setDismissed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -154,7 +160,8 @@ export default function Composer({
         />
       ) : null}
 
-      <div className="composer" data-od-id="chat-composer">
+      {floatingAction}
+      <div className="composer" data-od-id="chat-composer" ref={composerRef}>
         {badge ? (
           <div
             className={`composer-cmd${badge.known ? "" : " unknown"}`}

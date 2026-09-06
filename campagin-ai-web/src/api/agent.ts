@@ -8,6 +8,7 @@
  */
 
 import { ApiError } from "./client";
+import { getWebCsrfToken, setWebCsrfToken } from "./auth";
 import { WEB_RENDER_INSTRUCTIONS } from "./instructions";
 import { parseSseStream } from "./sse";
 import { isRunEvent } from "@/types/agent";
@@ -40,8 +41,8 @@ export class AgentApiError extends ApiError {
 }
 
 const STATUS_HINTS: Record<number, string> = {
-  401: "鉴权失败：dev server 没能读到 API_SERVER_KEY，检查 ~/.hermes/profiles/feishu/.env",
-  403: "被拒绝：请确认 .env 里 API_SERVER_CORS_ORIGINS 包含 http://localhost:5273",
+  401: "登录已失效，请重新登录",
+  403: "请求验证失败，请刷新页面后重试",
   404: "资源不存在",
   409: "状态冲突",
   429: "并发已达上限（gateway.api_server.max_concurrent_runs），稍后再试",
@@ -75,16 +76,25 @@ function toNetworkError(err: unknown): AgentApiError {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
+    const csrfToken = getWebCsrfToken();
     res = await fetch(path, {
       ...init,
+      credentials: "same-origin",
       headers: {
         Accept: "application/json",
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        ...(init?.method && !["GET", "HEAD", "OPTIONS"].includes(init.method) && csrfToken
+          ? { "X-CSRF-Token": csrfToken }
+          : {}),
         ...init?.headers,
       },
     });
   } catch (err) {
     throw toNetworkError(err);
+  }
+  if (res.status === 401) {
+    setWebCsrfToken(null);
+    window.dispatchEvent(new Event("hermes:login-required"));
   }
   if (!res.ok) throw await toError(res);
   if (res.status === 204) return undefined as T;
@@ -238,11 +248,16 @@ export async function* openRunEvents(
   let res: Response;
   try {
     res = await fetch(`/v1/runs/${encodeURIComponent(runId)}/events`, {
+      credentials: "same-origin",
       headers: { Accept: "text/event-stream" },
       signal,
     });
   } catch (err) {
     throw toNetworkError(err);
+  }
+  if (res.status === 401) {
+    setWebCsrfToken(null);
+    window.dispatchEvent(new Event("hermes:login-required"));
   }
   if (!res.ok) throw await toError(res);
   if (!res.body) throw new AgentApiError("agent 服务没有返回事件流", 0);

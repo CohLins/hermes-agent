@@ -5,6 +5,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { deleteSession, renameSession } from "@/api/agent";
 import { CURRENT_USER, PRODUCT_MARK, PRODUCT_NAME } from "@/constants";
 import { useSession } from "@/contexts/useSession";
+import { useAuth } from "@/contexts/useAuth";
 import { activeNavKey, navItems, navLabels } from "./navItems";
 import type { AgentSession } from "@/types/agent";
 
@@ -34,6 +35,7 @@ export default function Sidebar() {
   const current = activeNavKey(location.pathname);
   const { sessionId, openSession, sessions, sessionsLoading, refreshSessions, runningSessions } =
     useSession();
+  const { user, logout } = useAuth();
   const [keyword, setKeyword] = useState("");
   const [renaming, setRenaming] = useState<AgentSession | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -206,8 +208,10 @@ export default function Sidebar() {
         <div className="user-box">
           <div className="user-avatar">{CURRENT_USER.avatar}</div>
           <div className="user-text">
-            <div className="user-name">{CURRENT_USER.name}</div>
-            <div className="user-role">{CURRENT_USER.role}</div>
+            <div className="user-name">{user?.email ?? CURRENT_USER.name}</div>
+            <button type="button" className="user-role user-logout" onClick={() => void logout()}>
+              退出登录
+            </button>
           </div>
           <NavLink to="/settings" className="nav-icon user-settings" aria-label="打开设置">
             设

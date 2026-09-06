@@ -2,7 +2,11 @@ import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Skeleton } from "antd";
 import AppShell from "@/layout/AppShell";
+import AuthProvider from "@/contexts/AuthProvider";
 import SessionProvider from "@/contexts/SessionProvider";
+import LoginPage from "@/pages/auth/LoginPage";
+import RegisterPage from "@/pages/auth/RegisterPage";
+import { ProtectedRoute, PublicOnlyRoute, SessionExpiryBoundary } from "@/pages/auth/RouteGuards";
 
 // 页面按路由懒加载：antd 与 Markdown 渲染器不会全部压进首屏 chunk。
 const ChatPage = lazy(() => import("@/pages/chat"));
@@ -24,76 +28,88 @@ function PageFallback() {
 
 export default function App() {
   return (
-    <SessionProvider>
+    <AuthProvider>
       <Routes>
-      <Route element={<AppShell />}>
+        <Route path="login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
+        <Route path="register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
         <Route
-          index
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <ChatPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="capability"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <CapabilityPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="observe/:tab?"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <ObservePage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="knowledge"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <KnowledgePage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="knowledge/:collection/:docId"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <KnowledgeReader />
-            </Suspense>
-          }
-        />
-        <Route
-          path="tasks"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <TasksPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="alerts"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <AlertsPage />
-            </Suspense>
-          }
-        />
-        <Route
-          path="settings/:tab?"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <SettingsPage />
-            </Suspense>
-          }
-        />
+          element={(
+            <ProtectedRoute>
+              <SessionExpiryBoundary>
+                <SessionProvider>
+                  <AppShell />
+                </SessionProvider>
+              </SessionExpiryBoundary>
+            </ProtectedRoute>
+          )}
+        >
+          <Route
+            index
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <ChatPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="capability"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <CapabilityPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="observe/:tab?"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <ObservePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="knowledge"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <KnowledgePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="knowledge/:collection/:docId"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <KnowledgeReader />
+              </Suspense>
+            }
+          />
+          <Route
+            path="tasks"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <TasksPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="alerts"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <AlertsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="settings/:tab?"
+            element={
+              <Suspense fallback={<PageFallback />}>
+                <SettingsPage />
+              </Suspense>
+            }
+          />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
       </Routes>
-    </SessionProvider>
+    </AuthProvider>
   );
 }

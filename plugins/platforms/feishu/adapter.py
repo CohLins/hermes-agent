@@ -298,6 +298,7 @@ _MENTION_PLACEHOLDER_RE = re.compile(r"@_user_\d+")
 _MENTION_BOUNDARY_CHARS = frozenset(" \t\n\r.,;:!?、，。；：！？()[]{}<>\"'`")
 _TRAILING_TERMINAL_PUNCT = frozenset(" \t\n\r.!?。！？")
 _WHITESPACE_RE = re.compile(r"\s+")
+_WEB_BIND_COMMAND_RE = re.compile(r"^/bind\s+([A-HJ-NP-Z2-9]{16})\s*$", re.IGNORECASE)
 _SUPPORTED_CARD_TEXT_KEYS = (
     "title",
     "text",
@@ -3858,6 +3859,38 @@ class FeishuAdapter(BasePlatformAdapter):
             hint = _build_mention_hint(mentions)
             if hint:
                 text = f"{hint}\n\n{text}" if text else hint
+
+        if inbound_type == MessageType.COMMAND and chat_type == "p2p":
+            bind_match = _WEB_BIND_COMMAND_RE.fullmatch(text)
+            if bind_match:
+                gateway_runner = getattr(self, "gateway_runner", None)
+                sender_profile = await self._resolve_sender_profile(sender_id, is_bot=is_bot)
+                source = self.build_source(
+                    chat_id=getattr(message, "chat_id", "") or "",
+                    chat_type="dm",
+                    user_id=sender_profile["user_id"],
+                    user_name=sender_profile["user_name"],
+                    user_id_alt=sender_profile["user_id_alt"],
+                    is_bot=is_bot,
+                )
+                api_adapter = getattr(gateway_runner, "adapters", {}).get(Platform.API_SERVER)
+                web_auth = getattr(api_adapter, "web_auth_service", None)
+                account = (
+                    web_auth.consume_feishu_binding(
+                        code=bind_match.group(1).upper(),
+                        union_id=getattr(sender_id, "union_id", None),
+                        user_id=getattr(sender_id, "user_id", None),
+                        open_id=getattr(sender_id, "open_id", None),
+                    )
+                    if web_auth is not None and gateway_runner is not None and gateway_runner._is_user_authorized(source)
+                    else None
+                )
+                await self.send(
+                    getattr(message, "chat_id", "") or "",
+                    "Web 账户绑定成功，请回到网页登录。" if account else "绑定码无效、已过期或当前飞书账号未获授权。",
+                    reply_to=message_id,
+                )
+                return
 
         thread_id = getattr(message, "thread_id", None) or getattr(message, "root_id", None) or None
         reply_to_message_id = (

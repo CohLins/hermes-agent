@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -28,6 +29,39 @@ function readAgentKey(): string {
 }
 
 const agentTarget = process.env.AGENT_API_TARGET ?? "http://127.0.0.1:8642";
+const UNSAFE_PATH_SEGMENT = /(?:^|\/)(?:\.{1,2}|%2e|%2f|%5c)(?:\/|$)/i;
+
+function rejectUnsafeRequestPath(req: IncomingMessage, res: ServerResponse): boolean {
+  const rawPath = req.url?.split("?", 1)[0] ?? "/";
+  let decodedPath = rawPath;
+  try {
+    for (let index = 0; index < 3; index += 1) {
+      const nextPath = decodeURIComponent(decodedPath);
+      if (nextPath === decodedPath) break;
+      decodedPath = nextPath;
+    }
+  } catch {
+    res.statusCode = 400;
+    res.end("Invalid request path");
+    return true;
+  }
+  if (UNSAFE_PATH_SEGMENT.test(rawPath) || UNSAFE_PATH_SEGMENT.test(decodedPath) || decodedPath.includes("\\")) {
+    res.statusCode = 400;
+    res.end("Unsafe request path");
+    return true;
+  }
+  return false;
+}
+
+const requestBoundaryPlugin = {
+  name: "reject-unsafe-request-path",
+  configureServer(server: { middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void } }) {
+    server.middlewares.use((req, res, next) => {
+      if (rejectUnsafeRequestPath(req, res)) return;
+      next();
+    });
+  },
+};
 
 /**
  * api_server 的两个前缀：/api/sessions、/v1/runs 等。
@@ -52,16 +86,28 @@ const agentProxy = {
   },
 };
 
+const webApiProxy = {
+  ...agentProxy,
+  rewrite: (pathValue: string) => `/web${pathValue}`,
+};
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [requestBoundaryPlugin, react()],
   resolve: {
     alias: { "@": path.resolve(import.meta.dirname, "src") },
   },
   server: {
     port: 5273,
+    fs: {
+      deny: ["**/campaign-users.json"],
+    },
     proxy: {
-      "/api": agentProxy,
-      "/v1": agentProxy,
+      "/auth": {
+        ...agentProxy,
+        rewrite: (pathValue: string) => `/web${pathValue}`,
+      },
+      "/api": webApiProxy,
+      "/v1": webApiProxy,
     },
   },
 });

@@ -1009,6 +1009,197 @@ class APIServerAdapter(BasePlatformAdapter):
         # Shutdown counts this reservation so the request cannot slip through
         # the drain between its first await and _run_agent()/task registration.
         self._pending_agent_requests: int = 0
+        self._web_auth_service: Optional[Any] = None
+        self._web_auth_attempts: Dict[tuple[str, str], list[float]] = {}
+        self._web_auth_lock = asyncio.Semaphore(2)
+
+    @property
+    def web_auth_service(self) -> Optional[Any]:
+        return self._web_auth()
+
+    def configure_web_auth(self, *, users_path: Path, runtime_path: Path) -> None:
+        from gateway.web_auth import WebAuthService
+
+        self._web_auth_service = WebAuthService(
+            users_path=users_path,
+            runtime_path=runtime_path,
+        )
+
+    def _web_auth(self) -> Optional[Any]:
+        if self._web_auth_service is not None:
+            return self._web_auth_service
+        try:
+            from hermes_constants import get_hermes_home
+            from gateway.web_auth import WebAuthService
+
+            root = Path(__file__).resolve().parents[2]
+            self._web_auth_service = WebAuthService(
+                users_path=root / "config" / "campaign-users.json",
+                runtime_path=get_hermes_home() / "web-auth-runtime.json",
+            )
+        except Exception:
+            logger.exception("Failed to initialize web authentication")
+            return None
+        return self._web_auth_service
+
+    def _web_session_from_request(self, request: "web.Request") -> Optional[Any]:
+        service = self._web_auth()
+        if service is None:
+            return None
+        return service.verify_session(request.cookies.get("hermes_web_session", ""))
+
+    @staticmethod
+    def _web_auth_error() -> "web.Response":
+        return web.json_response(
+            {"error": {"message": "Login required", "type": "authentication_error", "code": "login_required"}},
+            status=401,
+        )
+
+    @staticmethod
+    def _web_same_origin(request: "web.Request") -> bool:
+        origin = request.headers.get("Origin", "").rstrip("/")
+        if not origin:
+            return True
+        scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+        host = request.headers.get("X-Forwarded-Host", request.host)
+        return hmac.compare_digest(origin, f"{scheme}://{host}".rstrip("/"))
+
+    def _web_request_allowed(self, request: "web.Request", *, csrf: bool = False) -> Optional["web.Response"]:
+        if not self._web_same_origin(request):
+            return web.json_response(
+                {"error": {"message": "Cross-origin request rejected", "type": "authentication_error", "code": "origin_invalid"}},
+                status=403,
+            )
+        session = self._web_session_from_request(request)
+        if session is None:
+            return self._web_auth_error()
+        if csrf:
+            service = self._web_auth()
+            if service is None or not service.verify_csrf(
+                token=request.cookies.get("hermes_web_session", ""),
+                csrf_token=request.headers.get("X-CSRF-Token", ""),
+            ):
+                return web.json_response(
+                    {"error": {"message": "Invalid CSRF token", "type": "authentication_error", "code": "csrf_invalid"}},
+                    status=403,
+                )
+        return None
+
+    def _web_auth_rate_limited(self, request: "web.Request", action: str) -> bool:
+        now = time.monotonic()
+        key = (action, request.remote or "unknown")
+        attempts = [at for at in self._web_auth_attempts.get(key, []) if at > now - 60]
+        if len(attempts) >= 5:
+            self._web_auth_attempts[key] = attempts
+            return True
+        attempts.append(now)
+        self._web_auth_attempts[key] = attempts
+        return False
+
+    @staticmethod
+    def _web_rate_limit_error() -> "web.Response":
+        return web.json_response(
+            {"error": {"message": "Too many authentication attempts", "type": "rate_limit_error", "code": "auth_rate_limited"}},
+            status=429,
+        )
+
+    async def _run_web_auth_operation(self, operation: Any) -> Any:
+        async with self._web_auth_lock:
+            return await asyncio.to_thread(operation)
+
+    async def _read_web_auth_body(self, request: "web.Request") -> tuple[Dict[str, Any], Optional["web.Response"]]:
+        return await self._read_json_body(request)
+
+    @staticmethod
+    def _web_cookie(response: "web.Response", session: Any, request: "web.Request") -> "web.Response":
+        response.set_cookie(
+            "hermes_web_session",
+            session.token,
+            max_age=8 * 60 * 60,
+            httponly=True,
+            samesite="Lax",
+            secure=request.scheme == "https" or request.headers.get("X-Forwarded-Proto") == "https",
+            path="/",
+        )
+        return response
+
+    async def _handle_web_auth_register(self, request: "web.Request") -> "web.Response":
+        if not self._web_same_origin(request):
+            return web.json_response(
+                {"error": {"message": "Cross-origin request rejected", "type": "authentication_error", "code": "origin_invalid"}},
+                status=403,
+            )
+        if self._web_auth_rate_limited(request, "register"):
+            return self._web_rate_limit_error()
+        service = self._web_auth()
+        if service is None:
+            return web.json_response(_openai_error("Web authentication unavailable"), status=503)
+        body, error = await self._read_web_auth_body(request)
+        if error:
+            return error
+        try:
+            registration = await self._run_web_auth_operation(
+                lambda: service.register(email=str(body.get("email", "")), password=str(body.get("password", "")))
+            )
+        except ValueError as exc:
+            return web.json_response(_openai_error(str(exc), code="invalid_registration"), status=400)
+        return web.json_response({"code": registration.code, "expires_at": registration.expires_at}, status=201)
+
+    async def _handle_web_auth_login(self, request: "web.Request") -> "web.Response":
+        if not self._web_same_origin(request):
+            return web.json_response(
+                {"error": {"message": "Cross-origin request rejected", "type": "authentication_error", "code": "origin_invalid"}},
+                status=403,
+            )
+        if self._web_auth_rate_limited(request, "login"):
+            return self._web_rate_limit_error()
+        service = self._web_auth()
+        if service is None:
+            return web.json_response(_openai_error("Web authentication unavailable"), status=503)
+        body, error = await self._read_web_auth_body(request)
+        if error:
+            return error
+        session = await self._run_web_auth_operation(
+            lambda: service.login(email=str(body.get("email", "")), password=str(body.get("password", "")))
+        )
+        if session is None:
+            return web.json_response(_openai_error("Invalid email or password", code="invalid_credentials"), status=401)
+        return self._web_cookie(
+            web.json_response(
+                {"authenticated": True, "email": session.email, "expires_at": session.expires_at, "csrf_token": session.csrf_token}
+            ),
+            session,
+            request,
+        )
+
+    async def _handle_web_auth_me(self, request: "web.Request") -> "web.Response":
+        session = self._web_session_from_request(request)
+        if session is None:
+            return self._web_auth_error()
+        return web.json_response(
+            {"authenticated": True, "email": session.email, "expires_at": session.expires_at, "csrf_token": session.csrf_token}
+        )
+
+    async def _handle_web_auth_logout(self, request: "web.Request") -> "web.Response":
+        error = self._web_request_allowed(request, csrf=True)
+        if error:
+            return error
+        service = self._web_auth()
+        if service is not None:
+            service.logout(request.cookies.get("hermes_web_session", ""))
+        response = web.json_response({"authenticated": False})
+        response.del_cookie("hermes_web_session", path="/")
+        return response
+
+    def _web_protected_handler(self, handler: Any) -> Any:
+        @wraps(handler)
+        async def wrapped(request: "web.Request") -> "web.Response":
+            error = self._web_request_allowed(request, csrf=request.method not in {"GET", "HEAD", "OPTIONS"})
+            if error:
+                return error
+            return await handler(request)
+
+        return wrapped
 
     def active_agent_work_count(self) -> int:
         """Return all live agent work owned by this API adapter.
@@ -1516,7 +1707,14 @@ class APIServerAdapter(BasePlatformAdapter):
             ("GET", "/v1/runs/{run_id}/events", self._handle_run_events),
             ("POST", "/v1/runs/{run_id}/approval", self._handle_run_approval),
             ("POST", "/v1/runs/{run_id}/stop", self._handle_stop_run),
+            ("POST", "/web/auth/register", self._handle_web_auth_register),
+            ("POST", "/web/auth/login", self._handle_web_auth_login),
+            ("GET", "/web/auth/me", self._handle_web_auth_me),
+            ("POST", "/web/auth/logout", self._handle_web_auth_logout),
         ]
+        for method, path, handler in list(routes):
+            if path.startswith("/api/") or path.startswith("/v1/"):
+                routes.append((method, f"/web{path}", self._web_protected_handler(handler)))
         if _CRON_AVAILABLE:
             # Chronos managed-cron fire webhook (NAS → agent). Authenticated
             # by a NAS-minted JWT (NOT API_SERVER_KEY).
@@ -5405,7 +5603,8 @@ class APIServerAdapter(BasePlatformAdapter):
             # config/credentials to that profile when multiplexing is on.
             for method, path, handler in self._http_route_table():
                 self._app.router.add_route(method, path, handler)
-                self._app.router.add_route(method, f"/p/{{profile}}{path}", handler)
+                if not path.startswith("/web/"):
+                    self._app.router.add_route(method, f"/p/{{profile}}{path}", handler)
             # Store the adapter after native routes are registered. Local Hermes-Relay
             # bootstrap shims use this key as a feature-detection hook; registering
             # native routes first lets those shims no-op instead of shadowing the

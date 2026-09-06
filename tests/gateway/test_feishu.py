@@ -1775,6 +1775,96 @@ class TestAdapterBehavior(unittest.TestCase):
         self.assertEqual(response.status, 401)
 
     @patch.dict(os.environ, {}, clear=True)
+    def test_dm_bind_command_consumes_pending_web_registration_before_agent_dispatch(self):
+        from gateway.config import Platform, PlatformConfig
+        from plugins.platforms.feishu.adapter import FeishuAdapter
+
+        adapter = FeishuAdapter(PlatformConfig())
+        adapter._dispatch_inbound_event = AsyncMock()
+        adapter.send = AsyncMock()
+        adapter._resolve_sender_name_from_api = AsyncMock(return_value="张三")
+        adapter.get_chat_info = AsyncMock(
+            return_value={"chat_id": "oc_chat", "name": "Feishu DM", "type": "dm"}
+        )
+        web_auth = Mock()
+        web_auth.consume_feishu_binding.return_value = {"email": "alice@example.com"}
+        adapter.gateway_runner = SimpleNamespace(
+            adapters={Platform.API_SERVER: SimpleNamespace(web_auth_service=web_auth)},
+            _is_user_authorized=Mock(return_value=True),
+            _profile_name_for_source=Mock(return_value=None),
+        )
+        message = SimpleNamespace(
+            chat_id="oc_chat",
+            thread_id=None,
+            message_type="text",
+            content='{"text":"/bind ABCDEFGHJKLMNPQR"}',
+            message_id="om_bind",
+        )
+        sender_id = SimpleNamespace(open_id="ou_user", user_id="u_user", union_id="on_union")
+        sender = SimpleNamespace(sender_type="user", sender_id=sender_id)
+        data = SimpleNamespace(event=SimpleNamespace(message=message, sender=sender))
+
+        asyncio.run(
+            adapter._process_inbound_message(
+                data=data,
+                message=message,
+                sender_id=sender_id,
+                chat_type="p2p",
+                message_id="om_bind",
+            )
+        )
+
+        web_auth.consume_feishu_binding.assert_called_once_with(
+            code="ABCDEFGHJKLMNPQR",
+            union_id="on_union",
+            user_id="u_user",
+            open_id="ou_user",
+        )
+        adapter.send.assert_awaited_once_with(
+            "oc_chat",
+            "Web 账户绑定成功，请回到网页登录。",
+            reply_to="om_bind",
+        )
+        adapter._dispatch_inbound_event.assert_not_awaited()
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_dm_bind_command_rejects_unapproved_sender(self):
+        from gateway.config import Platform, PlatformConfig
+        from plugins.platforms.feishu.adapter import FeishuAdapter
+
+        adapter = FeishuAdapter(PlatformConfig())
+        adapter._dispatch_inbound_event = AsyncMock()
+        adapter.send = AsyncMock()
+        adapter._resolve_sender_name_from_api = AsyncMock(return_value="张三")
+        web_auth = Mock()
+        adapter.gateway_runner = SimpleNamespace(
+            adapters={Platform.API_SERVER: SimpleNamespace(web_auth_service=web_auth)},
+            _is_user_authorized=Mock(return_value=False),
+            _profile_name_for_source=Mock(return_value=None),
+        )
+        message = SimpleNamespace(
+            chat_id="oc_chat",
+            thread_id=None,
+            message_type="text",
+            content='{"text":"/bind ABCDEFGHJKLMNPQR"}',
+            message_id="om_bind",
+        )
+        sender_id = SimpleNamespace(open_id="ou_user", user_id="u_user", union_id="on_union")
+
+        asyncio.run(
+            adapter._process_inbound_message(
+                data=SimpleNamespace(),
+                message=message,
+                sender_id=sender_id,
+                chat_type="p2p",
+                message_id="om_bind",
+            )
+        )
+
+        web_auth.consume_feishu_binding.assert_not_called()
+        adapter._dispatch_inbound_event.assert_not_awaited()
+
+    @patch.dict(os.environ, {}, clear=True)
     def test_process_inbound_message_uses_event_sender_identity_only(self):
         from gateway.config import PlatformConfig
         from gateway.platforms.base import MessageType

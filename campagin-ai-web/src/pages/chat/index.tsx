@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { App, Button, Skeleton, Tooltip } from "antd";
-import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
+import { CheckOutlined, CloseOutlined, DownOutlined } from "@ant-design/icons";
 import { getChatSuggestions } from "@/api/chat";
 import { forkSession, listModels, renameSession } from "@/api/agent";
 import EmptyBlock from "@/components/EmptyBlock";
@@ -67,11 +67,140 @@ export default function ChatPage() {
     />
   );
 
-  // 新消息出现时滚到底。ref 只在 effect 里读，不在渲染期赋值。
+  const mainRef = useRef<HTMLElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  const autoFollowRef = useRef(true);
+  const scrollingToLatestRef = useRef(false);
+  const [composerNode, setComposerNode] = useState<HTMLDivElement | null>(null);
+  const [threadNode, setThreadNode] = useState<HTMLDivElement | null>(null);
+  const [composerHeight, setComposerHeight] = useState(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const latestScrollTop = useCallback(() => {
+    const main = mainRef.current;
+    const bottom = bottomRef.current;
+    if (!main || !bottom) return 0;
+    const safeBottomGap = composerHeight + 20;
+    return Math.max(
+      0,
+      bottom.getBoundingClientRect().bottom - main.getBoundingClientRect().top + main.scrollTop - main.clientHeight + safeBottomGap,
+    );
+  }, [composerHeight]);
+
+  const isAtLatest = useCallback(() => {
+    const main = mainRef.current;
+    return main ? main.scrollTop >= latestScrollTop() - 24 : true;
+  }, [latestScrollTop]);
+
+  const scrollToLatest = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const main = mainRef.current;
+      if (!main) return;
+      autoFollowRef.current = true;
+      scrollingToLatestRef.current = true;
+      setShowJumpToLatest(false);
+      if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        main.scrollTo({ top: latestScrollTop(), behavior });
+        scrollFrameRef.current = null;
+        if (behavior === "auto") scrollingToLatestRef.current = false;
+      });
+    },
+    [latestScrollTop],
+  );
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [turns]);
+    mainRef.current = document.querySelector<HTMLElement>(".main");
+    return () => {
+      if (scrollFrameRef.current !== null) window.cancelAnimationFrame(scrollFrameRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    autoFollowRef.current = true;
+    scrollingToLatestRef.current = false;
+  }, [sessionId]);
+
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const onScroll = () => {
+      const atLatest = isAtLatest();
+      if (scrollingToLatestRef.current) {
+        if (atLatest) scrollingToLatestRef.current = false;
+        return;
+      }
+      autoFollowRef.current = atLatest;
+      setShowJumpToLatest(!atLatest);
+    };
+    const cancelSmoothFollow = () => {
+      if (!scrollingToLatestRef.current) return;
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+      main.scrollTo({ top: main.scrollTop, behavior: "auto" });
+      scrollingToLatestRef.current = false;
+      autoFollowRef.current = false;
+      setShowJumpToLatest(true);
+    };
+    const cancelFromKeyboard = (event: KeyboardEvent) => {
+      if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) {
+        cancelSmoothFollow();
+      }
+    };
+    main.addEventListener("scroll", onScroll, { passive: true });
+    main.addEventListener("wheel", cancelSmoothFollow, { passive: true });
+    main.addEventListener("pointerdown", cancelSmoothFollow, { passive: true });
+    main.addEventListener("touchstart", cancelSmoothFollow, { passive: true });
+    window.addEventListener("keydown", cancelFromKeyboard);
+    return () => {
+      main.removeEventListener("scroll", onScroll);
+      main.removeEventListener("wheel", cancelSmoothFollow);
+      main.removeEventListener("pointerdown", cancelSmoothFollow);
+      main.removeEventListener("touchstart", cancelSmoothFollow);
+      window.removeEventListener("keydown", cancelFromKeyboard);
+    };
+  }, [isAtLatest]);
+
+  useEffect(() => {
+    if (!composerNode) return;
+    const observer = new ResizeObserver(([entry]) => setComposerHeight(entry.borderBoxSize[0]?.blockSize ?? entry.contentRect.height));
+    observer.observe(composerNode);
+    return () => observer.disconnect();
+  }, [composerNode]);
+
+  useEffect(() => {
+    if (!threadNode) return;
+    const observer = new ResizeObserver(() => {
+      if (autoFollowRef.current) scrollToLatest();
+    });
+    observer.observe(threadNode);
+    return () => observer.disconnect();
+  }, [scrollToLatest, threadNode]);
+
+  useEffect(() => {
+    if (autoFollowRef.current) scrollToLatest();
+  }, [scrollToLatest, turns]);
+
+  const jumpToLatest = () => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scrollToLatest(reducedMotion ? "auto" : "smooth");
+  };
+
+  const jumpToLatestButton = showJumpToLatest ? (
+    <Tooltip title="回到最新消息">
+      <Button
+        type="default"
+        shape="circle"
+        className="jump-to-latest"
+        icon={<DownOutlined />}
+        onClick={jumpToLatest}
+        aria-label="回到最新消息"
+      />
+    </Tooltip>
+  ) : null;
 
   /** 本地命令：全部在前端执行，一条都不发给 agent。 */
   const runCommand = (cmd: SlashCommand, arg: string) => {
@@ -235,6 +364,7 @@ export default function ChatPage() {
             placeholder="描述你遇到的问题，或输入 / 查看快捷命令"
             hint="Enter 发送 · Shift + Enter 换行 · / 唤出命令"
             modelSlot={modelSlot}
+            composerRef={setComposerNode}
           />
         </div>
         <ApprovalModal approval={approval} onResolve={resolveApproval} />
@@ -251,7 +381,7 @@ export default function ChatPage() {
 
   return (
     <section data-od-id="view-home">
-      <div className="chat-thread" data-od-id="chat-result">
+      <div className="chat-thread" data-od-id="chat-result" ref={setThreadNode}>
         {turns.map((turn) => {
           const confirmRequest =
             turn.phase === "completed" ? detectConfirmRequest(turn.answer) : null;
@@ -403,7 +533,7 @@ export default function ChatPage() {
           );
         })}
 
-        <div ref={bottomRef} />
+        <div ref={bottomRef} className="chat-bottom-anchor" aria-hidden />
 
         <Composer
           value={input}
@@ -414,6 +544,8 @@ export default function ChatPage() {
           placeholder={`继续追问，${CURRENT_USER.name} · 输入 / 查看快捷命令`}
           hint={sessionId ? "Shift + Enter 换行 · / 唤出命令" : "Enter 发送 · / 唤出命令"}
           modelSlot={modelSlot}
+          composerRef={setComposerNode}
+          floatingAction={jumpToLatestButton}
         />
       </div>
       <ApprovalModal approval={approval} onResolve={resolveApproval} />
