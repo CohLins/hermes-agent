@@ -44,15 +44,8 @@ class AdapterShuttingDownError(RuntimeError):
     """
 
 
-# Audio file extensions Hermes recognizes for native audio delivery.
-# Kept in sync with tools/send_message_tool.py and cron/scheduler.py via
-# should_send_media_as_audio() below.
+# Audio file extensions Hermes recognizes for Feishu native audio delivery.
 _AUDIO_EXTS = frozenset({'.ogg', '.opus', '.mp3', '.wav', '.m4a', '.flac'})
-# Telegram's Bot API sendAudio only accepts MP3 / M4A. Other audio
-# formats either need to go through sendVoice (Opus/OGG) or must be
-# delivered as a regular document.
-_TELEGRAM_AUDIO_ATTACHMENT_EXTS = frozenset({'.mp3', '.m4a'})
-_TELEGRAM_VOICE_EXTS = frozenset({'.ogg', '.opus'})
 _POST_DELIVERY_CALLBACK_TIMEOUT_SECONDS = 30.0
 
 
@@ -73,36 +66,9 @@ def _float_env(name: str, default: float) -> float:
 
 
 def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) -> dict | None:
-    """Build platform-aware thread metadata for adapter sends.
-
-    Most platforms route threaded sends with a generic ``thread_id`` metadata
-    value. Telegram private-chat topics created through Hermes' DM-topic helper
-    are exposed in updates as ``message_thread_id`` plus a reply anchor. Live
-    user-message replies route with ``message_thread_id`` + ``reply_to_message_id``;
-    synthetic/resumed sends that have no reply anchor fall back to Telegram's
-    ``direct_messages_topic_id`` when the Bot API supports it.
-    """
+    """Build thread metadata for adapter sends."""
     thread_id = getattr(source, "thread_id", None)
-    metadata = {"thread_id": thread_id} if thread_id is not None else {}
-    # Slack workspace identity is durable routing state, not ephemeral event
-    # metadata. Carry it on every outbound path (including unthreaded sends)
-    # so a multi-workspace Socket Mode gateway never falls back to its primary
-    # WebClient after an async, stream, or recovery boundary.
-    if _platform_name(getattr(source, "platform", None)) == "slack":
-        scope_id = getattr(source, "scope_id", None)
-        if scope_id:
-            metadata["slack_team_id"] = str(scope_id)
-    if not metadata:
-        return None
-    if _platform_name(getattr(source, "platform", None)) == "telegram" and getattr(source, "chat_type", None) == "dm":
-        metadata["telegram_dm_topic_reply_fallback"] = True
-        tid = str(thread_id)
-        if tid and tid not in {"", "1"}:
-            metadata["direct_messages_topic_id"] = tid
-        anchor = reply_to_message_id or getattr(source, "message_id", None)
-        if anchor is not None:
-            metadata["telegram_reply_to_message_id"] = str(anchor)
-    return metadata
+    return {"thread_id": thread_id} if thread_id is not None else None
 
 
 def _mark_notify_metadata(metadata: dict | None) -> dict:
@@ -113,49 +79,20 @@ def _mark_notify_metadata(metadata: dict | None) -> dict:
 
 
 def _reply_anchor_for_event(event) -> str | None:
-    """Return reply_to id for platforms that need reply semantics.
-
-    Telegram forum/supergroup topics should be routed by topic metadata, not by
-    replying to the triggering message. Hermes-created Telegram private-chat
-    topic lanes prefer replying to the triggering user message so the answer
-    stays attached to the active lane; synthetic/resumed sends fall back to
-    ``direct_messages_topic_id`` metadata when no message id is available.
-    """
+    """Return the reply anchor for an inbound event."""
     source = getattr(event, "source", None)
-    platform = _platform_name(getattr(source, "platform", None))
-    thread_id = getattr(source, "thread_id", None)
-    if platform == "telegram" and thread_id and getattr(source, "chat_type", None) == "dm":
-        # Reply to the triggering user message. Replying to Telegram's earlier
-        # topic seed/anchor can render the bot response outside the active lane.
-        return getattr(event, "message_id", None) or getattr(event, "reply_to_message_id", None)
-    if platform == "telegram" and thread_id:
-        return None
-    if platform == "feishu" and thread_id and getattr(event, "reply_to_message_id", None):
+    if (
+        _platform_name(getattr(source, "platform", None)) == "feishu"
+        and getattr(source, "thread_id", None)
+        and getattr(event, "reply_to_message_id", None)
+    ):
         return getattr(event, "reply_to_message_id", None)
     return getattr(event, "message_id", None)
 
 
 def should_send_media_as_audio(platform, ext: str, is_voice: bool = False) -> bool:
-    """Return True when a media file should use the platform's audio sender.
-
-    Other platforms: every recognized audio extension routes through the
-    audio sender.
-
-    Telegram: the Bot API only accepts MP3/M4A for sendAudio and
-    Opus/OGG for sendVoice. Opus/OGG is only routed as audio when the
-    caller flagged ``is_voice=True`` (so we don't turn a regular audio
-    attachment into a voice bubble just because the file happens to be
-    Opus). Everything else falls through to document delivery by
-    returning ``False``.
-    """
-    normalized_ext = (ext or "").lower()
-    if normalized_ext not in _AUDIO_EXTS:
-        return False
-    if _platform_name(platform) == "telegram":
-        if normalized_ext in _TELEGRAM_VOICE_EXTS:
-            return is_voice
-        return normalized_ext in _TELEGRAM_AUDIO_ATTACHMENT_EXTS
-    return True
+    """Return whether a recognized audio file uses the native audio sender."""
+    return (ext or "").lower() in _AUDIO_EXTS
 
 
 def utf16_len(s: str) -> int:
@@ -5391,21 +5328,10 @@ class BasePlatformAdapter(ABC):
                 _tts_caption_delivered = False
                 if _tts_path and Path(_tts_path).exists():
                     try:
-                        telegram_tts_caption = None
-                        if (
-                            self.platform == Platform.TELEGRAM
-                            and text_content
-                            and text_content[:1024] == text_content
-                        ):
-                            telegram_tts_caption = text_content
-                        tts_result = await self.play_tts(
+                        await self.play_tts(
                             chat_id=event.source.chat_id,
                             audio_path=_tts_path,
-                            caption=telegram_tts_caption,
                             metadata=_final_thread_metadata,
-                        )
-                        _tts_caption_delivered = bool(
-                            telegram_tts_caption and getattr(tts_result, "success", False)
                         )
                     finally:
                         try:

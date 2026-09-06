@@ -183,17 +183,6 @@ def test_get_platform_tools_context_engine_respects_explicit_empty_selection():
     assert "context_engine" not in enabled
 
 
-def test_get_platform_tools_default_whatsapp_includes_web():
-    enabled = _get_platform_tools({}, "whatsapp")
-
-    assert "web" in enabled
-
-
-def test_get_platform_tools_homeassistant_platform_keeps_homeassistant_toolset():
-    enabled = _get_platform_tools({}, "homeassistant")
-
-    assert "homeassistant" in enabled
-
 
 def test_get_platform_tools_homeassistant_toolset_enabled_for_cron_when_hass_token_set(monkeypatch):
     """HA toolset is runtime-gated by check_fn (requires HASS_TOKEN).
@@ -223,136 +212,6 @@ def test_get_platform_tools_homeassistant_toolset_off_for_cron_when_hass_token_m
 
     cron_enabled = _get_platform_tools({}, "cron")
     assert "homeassistant" not in cron_enabled
-
-
-def test_get_platform_tools_x_search_auto_enabled_when_xai_oauth_present(monkeypatch):
-    """x_search toolset auto-enables across platforms when xAI Grok OAuth
-    tokens are present, mirroring the HASS_TOKEN → homeassistant rule.
-
-    The user already authenticated via SuperGrok OAuth; they shouldn't have
-    to also click through `hermes tools` → X (Twitter) Search to flip the
-    toolset on. Tool's check_fn still gates schema registration if creds
-    later go missing.
-    """
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.setattr(
-        "hermes_cli.tools_config._xai_credentials_present", lambda: True
-    )
-
-    for plat in ("cli", "cron", "telegram"):
-        enabled = _get_platform_tools({}, plat)
-        assert "x_search" in enabled, f"x_search missing for {plat}"
-
-
-# ─── #35527: platform-restricted default-off toolsets (discord/discord_admin)
-# are stripped by _DEFAULT_OFF_TOOLSETS even when the user explicitly opts in
-# via the platform's native composite. The composite ``hermes-discord``
-# contains both ``discord`` and ``discord_admin`` tools, so configuring it is
-# an explicit opt-in that should survive the default-off strip. ───────────────
-
-
-def test_discord_composite_only_enables_discord_toolsets():
-    """Layer 1: ``platform_toolsets.discord: [hermes-discord]`` is an explicit
-    opt-in to the full Discord bundle (which includes the ``discord`` and
-    ``discord_admin`` tools). They must not be silently stripped."""
-    config = {"platform_toolsets": {"discord": ["hermes-discord"]}}
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" in enabled, "discord toolset missing from hermes-discord composite"
-    assert "discord_admin" in enabled, "discord_admin toolset missing from composite"
-
-
-def test_discord_composite_plus_configurable_enables_discord_toolsets():
-    """Layer 2: mixing the composite with a configurable key (e.g. spotify)
-    still opts into the Discord toolsets carried by the composite."""
-    config = {"platform_toolsets": {"discord": ["hermes-discord", "spotify"]}}
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" in enabled
-    assert "discord_admin" in enabled
-
-
-def test_discord_composite_plus_partial_explicit_enables_sibling():
-    """Layer 3: ``[hermes-discord, discord]`` lists discord explicitly but
-    discord_admin arrives only via the composite. Both must survive."""
-    config = {"platform_toolsets": {"discord": ["hermes-discord", "discord"]}}
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" in enabled
-    assert "discord_admin" in enabled
-
-
-def test_discord_unconfigured_keeps_discord_toolsets_off():
-    """Layer 4 (guard): an unconfigured discord platform keeps the platform
-    toolsets OFF by default — explicit configuration is required to opt in."""
-    enabled = _get_platform_tools({}, "discord")
-    assert "discord" not in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_discord_empty_list_keeps_discord_toolsets_off():
-    """Layer 4 (guard): an explicit empty list means 'nothing' — the Discord
-    toolsets must not be auto-added even though the fix keys off explicit
-    configuration."""
-    config = {"platform_toolsets": {"discord": []}}
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" not in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_discord_toolsets_do_not_leak_to_other_platforms():
-    """Layer 4 (guard): discord/discord_admin are platform-restricted — they
-    must never appear on a non-discord platform even when that platform is
-    explicitly configured."""
-    config = {"platform_toolsets": {"telegram": ["hermes-telegram", "discord"]}}
-    enabled = _get_platform_tools(config, "telegram")
-    assert "discord" not in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_discord_explicit_workaround_still_works():
-    """Regression guard: the documented workaround of listing toolsets
-    explicitly must keep working after the fix."""
-    config = {
-        "platform_toolsets": {"discord": ["hermes-discord", "discord", "discord_admin"]}
-    }
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" in enabled
-    assert "discord_admin" in enabled
-
-
-def test_get_platform_tools_x_search_auto_enabled_when_xai_api_key_present(monkeypatch):
-    """x_search toolset auto-enables when XAI_API_KEY is set, even without
-    OAuth tokens — the API-key path is a supported credential source."""
-    monkeypatch.setenv("XAI_API_KEY", "fake-xai-key")
-
-    cli_enabled = _get_platform_tools({}, "cli")
-    assert "x_search" in cli_enabled
-
-
-def test_get_platform_tools_x_search_off_when_no_xai_credentials(monkeypatch):
-    """Without any xAI credentials, x_search stays off — preserves the
-    "don't ship the schema to users who can't use it" default."""
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.setattr(
-        "hermes_cli.tools_config._xai_credentials_present", lambda: False
-    )
-
-    cli_enabled = _get_platform_tools({}, "cli")
-    assert "x_search" not in cli_enabled
-
-
-def test_get_platform_tools_x_search_respects_explicit_config(monkeypatch):
-    """Once the user has saved an explicit toolset list via `hermes tools`,
-    that list is authoritative — x_search auto-enable does NOT fire even
-    when xAI creds exist. The saved list represents deliberate choices."""
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.setattr(
-        "hermes_cli.tools_config._xai_credentials_present", lambda: True
-    )
-
-    # User explicitly opted into spotify but not x_search via `hermes tools`.
-    config = {"platform_toolsets": {"cli": ["hermes-cli", "spotify"]}}
-    enabled = _get_platform_tools(config, "cli")
-    assert "x_search" not in enabled
-    assert "spotify" in enabled
 
 
 def test_get_platform_tools_expands_composite_when_mixed_with_configurable():
@@ -671,26 +530,6 @@ def test_save_platform_tools_does_not_preserve_platform_default_toolsets():
     assert "moa" not in saved
 
 
-def test_save_platform_tools_does_not_preserve_hermes_telegram():
-    """Same bug for Telegram — hermes-telegram must not be preserved."""
-    config = {
-        "platform_toolsets": {
-            "telegram": [
-                "browser", "file", "hermes-telegram", "terminal", "web",
-            ]
-        }
-    }
-
-    new_selection = {"browser", "file", "terminal", "web"}
-
-    with patch("hermes_cli.tools_config.save_config"):
-        _save_platform_tools(config, "telegram", new_selection)
-
-    saved = config["platform_toolsets"]["telegram"]
-    assert "hermes-telegram" not in saved
-    assert "web" in saved
-
-
 def test_save_platform_tools_still_preserves_mcp_with_platform_default_present():
     """MCP server names must still be preserved even when platform defaults
     are being stripped out."""
@@ -898,12 +737,12 @@ def test_configure_all_platforms_configures_selected_tool_missing_provider(monke
     must enter provider/API-key setup even when Web was already enabled on all
     configured platforms, so the checklist selection itself has no diff.
     """
-    config = {"platform_toolsets": {"cli": ["web"], "telegram": ["web"]}}
+    config = {"platform_toolsets": {"cli": ["web"], "feishu": ["web"]}}
     configured = []
 
     monkeypatch.setattr(
         "hermes_cli.tools_config._get_enabled_platforms",
-        lambda: ["cli", "telegram"],
+        lambda: ["cli", "feishu"],
     )
 
     menu_calls = 0
@@ -936,7 +775,7 @@ def test_configure_all_platforms_configures_selected_tool_missing_provider(monke
 
     assert configured == ["web"]
     assert config["platform_toolsets"]["cli"] == ["web"]
-    assert config["platform_toolsets"]["telegram"] == ["web"]
+    assert config["platform_toolsets"]["feishu"] == ["web"]
 
 
 def test_configure_single_platform_configures_selected_tool_missing_provider(monkeypatch):
@@ -1044,64 +883,6 @@ def test_first_install_nous_auto_configures_managed_defaults(monkeypatch):
     assert configured == []
 
 
-def test_first_install_nous_auto_configures_video_gen(monkeypatch):
-    """When a Nous subscriber checks video_gen in the toolset checklist,
-    apply_nous_managed_defaults must write video_gen.provider and
-    video_gen.use_gateway so the FAL plugin can route through the gateway
-    at runtime.  Regression test for the bug where video_gen was marked as
-    auto-configured but no config was actually written."""
-    monkeypatch.setattr("hermes_cli.nous_subscription.managed_nous_tools_enabled", lambda: True)
-    config = {
-        "model": {"provider": "nous"},
-        "platform_toolsets": {"cli": []},
-    }
-    for env_var in (
-        "VOICE_TOOLS_OPENAI_KEY",
-        "OPENAI_API_KEY",
-        "ELEVENLABS_API_KEY",
-        "FIRECRAWL_API_KEY",
-        "FIRECRAWL_API_URL",
-        "TAVILY_API_KEY",
-        "PARALLEL_API_KEY",
-        "BROWSERBASE_API_KEY",
-        "BROWSERBASE_PROJECT_ID",
-        "BROWSER_USE_API_KEY",
-        "FAL_KEY",
-    ):
-        monkeypatch.delenv(env_var, raising=False)
-
-    monkeypatch.setattr(
-        "hermes_cli.tools_config._prompt_toolset_checklist",
-        lambda *args, **kwargs: {"video_gen"},
-    )
-    monkeypatch.setattr("hermes_cli.tools_config.save_config", lambda config: None)
-    monkeypatch.setattr(
-        "hermes_cli.tools_config._get_enabled_platforms",
-        lambda: ["cli"],
-    )
-    monkeypatch.setattr(
-        "hermes_cli.nous_subscription.get_nous_portal_account_info",
-        lambda *args, **kwargs: NousPortalAccountInfo(
-            logged_in=True,
-            source="jwt",
-            fresh=False,
-            paid_service_access=True,
-        ),
-    )
-
-    configured = []
-    monkeypatch.setattr(
-        "hermes_cli.tools_config._configure_toolset",
-        lambda ts_key, config: configured.append(ts_key),
-    )
-
-    tools_command(first_install=True, config=config)
-
-    assert config["video_gen"]["provider"] == "fal"
-    assert config["video_gen"]["use_gateway"] is True
-    # video_gen should NOT appear in the manual configure list — it's auto-configured
-    assert "video_gen" not in configured
-
 # ── Platform / toolset consistency ────────────────────────────────────────────
 
 
@@ -1120,29 +901,12 @@ class TestPlatformToolsetConsistency:
                 f"which is not defined in toolsets.py"
             )
 
-    def test_gateway_toolset_includes_all_messaging_platforms(self):
-        """hermes-gateway includes list should cover all messaging platforms."""
-        from hermes_cli.tools_config import PLATFORMS
-        from toolsets import TOOLSETS
-
-        gateway_includes = set(TOOLSETS["hermes-gateway"]["includes"])
-        # Exclude non-messaging platforms from the check
-        non_messaging = {"cli", "api_server", "cron"}
-        for platform, meta in PLATFORMS.items():
-            if platform in non_messaging:
-                continue
-            ts_name = meta["default_toolset"]
-            assert ts_name in gateway_includes, (
-                f"Platform {platform!r} toolset {ts_name!r} missing from "
-                f"hermes-gateway includes"
-            )
-
     def test_skills_config_covers_tools_config_platforms(self):
         """skills_config.PLATFORMS should have entries for all gateway platforms."""
         from hermes_cli.tools_config import PLATFORMS as TOOLS_PLATFORMS
         from hermes_cli.skills_config import PLATFORMS as SKILLS_PLATFORMS
 
-        non_messaging = {"api_server"}
+        non_messaging = {"api_server", "cron"}
         for platform in TOOLS_PLATFORMS:
             if platform in non_messaging:
                 continue
@@ -1446,62 +1210,6 @@ def test_get_platform_tools_second_pass_skips_fully_claimed_toolsets():
     enabled = _get_platform_tools({}, "cli")
 
     assert "search" not in enabled
-
-
-def test_get_platform_tools_discord_both_off_by_default():
-    """Both `discord` and `discord_admin` are opt-in via `hermes tools`,
-    even on the Discord platform itself.  Users shouldn't auto-inherit 19
-    extra tools just because DISCORD_BOT_TOKEN is set."""
-    enabled = _get_platform_tools({}, "discord")
-    assert "discord" not in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_discord_toolsets_in_configurable_toolsets():
-    keys = {ts_key for ts_key, _, _ in CONFIGURABLE_TOOLSETS}
-    assert "discord" in keys
-    assert "discord_admin" in keys
-
-
-def test_discord_toolsets_in_default_off():
-    assert "discord" in _DEFAULT_OFF_TOOLSETS
-    assert "discord_admin" in _DEFAULT_OFF_TOOLSETS
-
-
-def test_discord_toolsets_not_available_on_other_platforms():
-    """Platform-scoping: discord / discord_admin should not appear on CLI,
-    Telegram, etc. — not even as an opt-in."""
-    from hermes_cli.tools_config import _toolset_allowed_for_platform
-    for plat in ["cli", "telegram", "slack", "whatsapp", "signal"]:
-        assert not _toolset_allowed_for_platform("discord", plat), (
-            f"`discord` toolset leaked onto {plat}"
-        )
-        assert not _toolset_allowed_for_platform("discord_admin", plat), (
-            f"`discord_admin` toolset leaked onto {plat}"
-        )
-    assert _toolset_allowed_for_platform("discord", "discord")
-    assert _toolset_allowed_for_platform("discord_admin", "discord")
-
-
-def test_discord_toolsets_user_enabled_are_honored():
-    """When the user opts in via `hermes tools`, the toolset appears."""
-    config = {"platform_toolsets": {"discord": ["web", "terminal", "discord"]}}
-    enabled = _get_platform_tools(config, "discord")
-    assert "discord" in enabled
-    assert "discord_admin" not in enabled
-
-
-def test_save_platform_tools_strips_restricted_toolsets():
-    """Hand-edited or all-platforms checklist with `discord` selected for
-    Telegram must be stripped at save time."""
-    from hermes_cli.tools_config import _save_platform_tools
-    config = {}
-    _save_platform_tools(config, "telegram", {"web", "terminal", "discord", "discord_admin"})
-    saved = config["platform_toolsets"]["telegram"]
-    assert "discord" not in saved
-    assert "discord_admin" not in saved
-    assert "web" in saved
-    assert "terminal" in saved
 
 
 def test_get_platform_tools_feishu_includes_doc_and_drive():

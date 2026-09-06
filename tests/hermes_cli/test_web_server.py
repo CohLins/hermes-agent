@@ -2788,14 +2788,13 @@ class TestWebServerEndpoints:
             _channel_managed_env_keys,
         )
 
-        discord = _build_catalog_entry("discord")
-        assert "DISCORD_HOME_CHANNEL" in discord["env_vars"]
-        assert "DISCORD_ALLOW_ALL_USERS" in discord["env_vars"]
+        feishu = _build_catalog_entry("feishu")
+        assert "FEISHU_APP_ID" in feishu["env_vars"]
+        assert "FEISHU_APP_SECRET" in feishu["env_vars"]
 
         managed = _channel_managed_env_keys()
-        assert "DISCORD_HOME_CHANNEL" in managed
-        assert "BLUEBUBBLES_ALLOW_ALL_USERS" in managed
-        assert "MATTERMOST_ALLOW_ALL_USERS" in managed
+        assert "FEISHU_APP_ID" in managed
+        assert "FEISHU_APP_SECRET" in managed
         assert "GATEWAY_PROXY_URL" not in managed
         assert "GATEWAY_PROXY_URL" in _MESSAGING_KEYS_PAGE_KEYS
 
@@ -5457,59 +5456,22 @@ class TestNewEndpoints:
 
     def test_toggle_toolset_enable_disable(self):
         """PUT /api/tools/toolsets/{name} round-trips through config and the list view."""
-        # Enable a toolset that is off-by-default so the state change is observable.
-        resp = self.client.put("/api/tools/toolsets/x_search", json={"enabled": True})
+        resp = self.client.put("/api/tools/toolsets/homeassistant", json={"enabled": True})
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
-        assert body["name"] == "x_search"
+        assert body["name"] == "homeassistant"
         assert body["enabled"] is True
 
         listing = {t["name"]: t for t in self.client.get("/api/tools/toolsets").json()}
-        assert listing["x_search"]["enabled"] is True
+        assert listing["homeassistant"]["enabled"] is True
 
-        # Disable it again.
-        resp = self.client.put("/api/tools/toolsets/x_search", json={"enabled": False})
+        resp = self.client.put("/api/tools/toolsets/homeassistant", json={"enabled": False})
         assert resp.status_code == 200
         assert resp.json()["enabled"] is False
 
         listing = {t["name"]: t for t in self.client.get("/api/tools/toolsets").json()}
-        assert listing["x_search"]["enabled"] is False
-
-    def test_discord_toolsets_read_and_write_discord_platform(self):
-        """Platform-restricted toolsets must not be saved as successful CLI no-ops."""
-        from hermes_cli.config import load_config
-
-        listing = {t["name"]: t for t in self.client.get("/api/tools/toolsets").json()}
-        assert listing["discord"]["platform"] == "discord"
-        assert listing["discord"]["platform_label"] == "Discord"
-        assert listing["discord"]["enabled"] is False
-
-        resp = self.client.put("/api/tools/toolsets/discord", json={"enabled": True})
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "ok": True,
-            "name": "discord",
-            "platform": "discord",
-            "enabled": True,
-        }
-
-        config = load_config()
-        assert "discord" in config["platform_toolsets"]["discord"]
-        assert "discord" not in config["platform_toolsets"].get("cli", [])
-
-        listing = {t["name"]: t for t in self.client.get("/api/tools/toolsets").json()}
-        assert listing["discord"]["enabled"] is True
-        assert listing["discord_admin"]["enabled"] is False
-
-        resp = self.client.put(
-            "/api/tools/toolsets/discord_admin", json={"enabled": True}
-        )
-        assert resp.status_code == 200
-        config = load_config()
-        assert {"discord", "discord_admin"} <= set(
-            config["platform_toolsets"]["discord"]
-        )
+        assert listing["homeassistant"]["enabled"] is False
 
     def test_toggle_toolset_unknown_returns_400(self):
         resp = self.client.put(

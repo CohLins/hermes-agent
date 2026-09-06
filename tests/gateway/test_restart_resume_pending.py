@@ -72,7 +72,7 @@ def test_resume_pending_is_cleared_only_after_successful_turn():
     assert _should_clear_resume_pending_after_turn({"error": "boom"}) is False
 
 
-def _make_source(platform=Platform.TELEGRAM, chat_id="123", user_id="u1"):
+def _make_source(platform=Platform.FEISHU, chat_id="123", user_id="u1"):
     return SessionSource(platform=platform, chat_id=chat_id, user_id=user_id)
 
 
@@ -187,7 +187,7 @@ class TestSessionEntryResumeFields:
     def test_defaults(self):
         now = datetime.now()
         entry = SessionEntry(
-            session_key="agent:main:telegram:dm:1",
+            session_key="agent:main:feishu:dm:1",
             session_id="sid",
             created_at=now,
             updated_at=now,
@@ -199,7 +199,7 @@ class TestSessionEntryResumeFields:
     def test_roundtrip_with_resume_fields(self):
         now = datetime(2026, 4, 18, 12, 0, 0)
         entry = SessionEntry(
-            session_key="agent:main:telegram:dm:1",
+            session_key="agent:main:feishu:dm:1",
             session_id="sid",
             created_at=now,
             updated_at=now,
@@ -216,7 +216,7 @@ class TestSessionEntryResumeFields:
         """Old sessions.json without the new fields deserialize cleanly."""
         now = datetime.now()
         legacy = {
-            "session_key": "agent:main:telegram:dm:1",
+            "session_key": "agent:main:feishu:dm:1",
             "session_id": "sid",
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
@@ -350,7 +350,7 @@ class TestGetOrCreateResumePending:
         """Interrupted platform mappings must not stay pinned to compressed roots."""
         store = _make_store(tmp_path)
         source = _make_source(
-            platform=Platform.WEIXIN,
+            platform=Platform.FEISHU,
             chat_id="wx-chat",
             user_id="wx-user",
         )
@@ -448,7 +448,7 @@ class TestResumePendingSystemNote:
     def _pending_entry(self, reason="restart_timeout") -> SessionEntry:
         now = datetime.now()
         return SessionEntry(
-            session_key="agent:main:telegram:dm:1",
+            session_key="agent:main:feishu:dm:1",
             session_id="sid",
             created_at=now,
             updated_at=now,
@@ -938,8 +938,8 @@ async def test_drain_timeout_marks_resume_pending():
     runner._restart_drain_timeout = 0.05
 
     running_agent = MagicMock()
-    session_key_one = "agent:main:telegram:dm:A"
-    session_key_two = "agent:main:telegram:dm:B"
+    session_key_one = "agent:main:feishu:dm:A"
+    session_key_two = "agent:main:feishu:dm:B"
     runner._running_agents = {
         session_key_one: running_agent,
         session_key_two: MagicMock(),
@@ -971,7 +971,7 @@ async def test_drain_timeout_uses_restart_reason_when_restarting():
     runner._restart_requested = True
 
     running_agent = MagicMock()
-    runner._running_agents = {"agent:main:telegram:dm:A": running_agent}
+    runner._running_agents = {"agent:main:feishu:dm:A": running_agent}
 
     session_store = MagicMock()
     session_store.mark_resume_pending = MagicMock(return_value=True)
@@ -1001,8 +1001,8 @@ async def test_drain_timeout_skips_pending_sentinel_sessions():
     adapter.disconnect = AsyncMock()
     runner._restart_drain_timeout = 0.05
 
-    session_key_real = "agent:main:telegram:dm:A"
-    session_key_sentinel = "agent:main:telegram:dm:B"
+    session_key_real = "agent:main:feishu:dm:A"
+    session_key_sentinel = "agent:main:feishu:dm:B"
     runner._running_agents = {
         session_key_real: MagicMock(),
         session_key_sentinel: _AGENT_PENDING_SENTINEL,
@@ -1037,12 +1037,12 @@ async def test_startup_auto_resume_schedules_fresh_pending_sessions():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="resume-chat", thread_id="topic-1")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:group:resume-chat:topic-1",
+        session_key="agent:main:feishu:group:resume-chat:topic-1",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="group",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1079,12 +1079,12 @@ async def test_startup_auto_resume_includes_crash_recovery():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="crash-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:crash-chat",
+        session_key="agent:main:feishu:dm:crash-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -1109,12 +1109,12 @@ async def test_startup_auto_resume_skips_stale_entries():
         seconds=_auto_continue_freshness_window() + 60
     )
     stale_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:stale-chat",
+        session_key="agent:main:feishu:dm:stale-chat",
         session_id="sid",
         created_at=stale_marker,
         updated_at=stale_marker,
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1135,12 +1135,12 @@ async def test_startup_auto_resume_skips_suspended_and_originless():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="ok")
     suspended_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:suspended",
+        session_key="agent:main:feishu:dm:suspended",
         session_id="sid-s",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1148,12 +1148,12 @@ async def test_startup_auto_resume_skips_suspended_and_originless():
         last_resume_marked_at=datetime.now(),
     )
     originless = SessionEntry(
-        session_key="agent:main:telegram:dm:originless",
+        session_key="agent:main:feishu:dm:originless",
         session_id="sid-o",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=None,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1182,12 +1182,12 @@ async def test_startup_auto_resume_skips_disallowed_reasons():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="other")
     other_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:other",
+        session_key="agent:main:feishu:dm:other",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="manual_resume_request",
@@ -1218,12 +1218,12 @@ async def test_startup_auto_resume_skips_unauthorized_owner():
     runner._persist_active_agents = MagicMock()
     source = make_restart_source(chat_id="revoked-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:revoked-chat",
+        session_key="agent:main:feishu:dm:revoked-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1257,12 +1257,12 @@ async def test_startup_auto_resume_fails_closed_on_auth_error():
     runner._persist_active_agents = MagicMock()
     source = make_restart_source(chat_id="err-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:err-chat",
+        session_key="agent:main:feishu:dm:err-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1285,12 +1285,12 @@ async def test_startup_auto_resume_skips_when_adapter_unavailable():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="resume-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:resume-chat",
+        session_key="agent:main:feishu:dm:resume-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_timeout",
@@ -1320,12 +1320,12 @@ async def test_reconnect_reschedules_pending_after_late_platform_connect():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="late-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:late-chat",
+        session_key="agent:main:feishu:dm:late-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -1340,8 +1340,8 @@ async def test_reconnect_reschedules_pending_after_late_platform_connect():
     adapter.handle_message.assert_not_called()
 
     # Platform reconnects → its pending session is retried.
-    runner.adapters = {Platform.TELEGRAM: adapter}
-    scheduled = runner._schedule_resume_pending_sessions(platform=Platform.TELEGRAM)
+    runner.adapters = {Platform.FEISHU: adapter}
+    scheduled = runner._schedule_resume_pending_sessions(platform=Platform.FEISHU)
     await asyncio.sleep(0)
 
     assert scheduled == 1
@@ -1359,50 +1359,53 @@ async def test_reconnect_reschedule_is_platform_scoped():
     """The platform filter limits the pass to that platform's sessions, so
     reconnecting one platform never resumes another's pending session."""
     runner, adapter = make_restart_runner()
-    tg_source = make_restart_source(chat_id="tg-chat")
-    discord_source = SessionSource(
-        platform=Platform.DISCORD, chat_id="dc-chat", chat_type="dm", user_id="u1"
+    feishu_source = make_restart_source(chat_id="feishu-chat")
+    api_source = SessionSource(
+        platform=Platform.API_SERVER,
+        chat_id="api-chat",
+        chat_type="dm",
+        user_id="api-user",
     )
-    tg_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:tg-chat",
-        session_id="sid-tg",
+    feishu_entry = SessionEntry(
+        session_key="agent:main:feishu:dm:feishu-chat",
+        session_id="sid-feishu",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        origin=tg_source,
-        platform=Platform.TELEGRAM,
+        origin=feishu_source,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
         last_resume_marked_at=datetime.now(),
     )
-    discord_entry = SessionEntry(
-        session_key="agent:main:discord:dm:dc-chat",
-        session_id="sid-dc",
+    api_entry = SessionEntry(
+        session_key="agent:main:api_server:dm:api-chat",
+        session_id="sid-api",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        origin=discord_source,
-        platform=Platform.DISCORD,
+        origin=api_source,
+        platform=Platform.API_SERVER,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
         last_resume_marked_at=datetime.now(),
     )
     runner.session_store._entries = {
-        tg_entry.session_key: tg_entry,
-        discord_entry.session_key: discord_entry,
+        feishu_entry.session_key: feishu_entry,
+        api_entry.session_key: api_entry,
     }
     adapter.handle_message = AsyncMock()
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
 
-    scheduled = runner._schedule_resume_pending_sessions(platform=Platform.TELEGRAM)
+    scheduled = runner._schedule_resume_pending_sessions(platform=Platform.FEISHU)
     await asyncio.sleep(0)
 
-    # Only the telegram session is resumed; the discord session waits for its
-    # own reconnect.
+    # Only the Feishu session is resumed; the API session waits for its own
+    # adapter to become available.
     assert scheduled == 1
     adapter.handle_message.assert_awaited_once()
     event = adapter.handle_message.await_args.args[0]
-    assert event.source == tg_source
+    assert event.source == feishu_source
 
 
 @pytest.mark.asyncio
@@ -1413,12 +1416,12 @@ async def test_auto_resume_skips_sessions_with_running_agent():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="inflight-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:inflight-chat",
+        session_key="agent:main:feishu:dm:inflight-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -1428,7 +1431,7 @@ async def test_auto_resume_skips_sessions_with_running_agent():
     runner._running_agents = {pending_entry.session_key: object()}
     adapter.handle_message = AsyncMock()
 
-    scheduled = runner._schedule_resume_pending_sessions(platform=Platform.TELEGRAM)
+    scheduled = runner._schedule_resume_pending_sessions(platform=Platform.FEISHU)
 
     assert scheduled == 0
     adapter.handle_message.assert_not_called()
@@ -1463,12 +1466,12 @@ async def test_startup_restore_waits_for_resume_before_draining_inbound():
 
     source = make_restart_source(chat_id="restore-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:restore-chat",
+        session_key="agent:main:feishu:dm:restore-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -1526,7 +1529,7 @@ async def test_restart_banner_uses_try_to_resume_wording():
     still escalate to suspended)."""
     runner, adapter = make_restart_runner()
     runner._restart_requested = True
-    runner._running_agents["agent:main:telegram:dm:999"] = MagicMock()
+    runner._running_agents["agent:main:feishu:dm:999"] = MagicMock()
 
     await runner._notify_active_sessions_of_shutdown()
 
@@ -1540,8 +1543,8 @@ async def test_restart_banner_uses_try_to_resume_wording():
 async def test_restart_notifies_home_channel_even_without_active_sessions():
     runner, adapter = make_restart_runner()
     runner._restart_requested = True
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
@@ -1558,9 +1561,9 @@ async def test_restart_notifies_home_channel_even_without_active_sessions():
 async def test_restart_home_channel_notification_dedupes_active_chat():
     runner, adapter = make_restart_runner()
     runner._restart_requested = True
-    runner._running_agents["agent:main:telegram:dm:999"] = MagicMock()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner._running_agents["agent:main:feishu:dm:999"] = MagicMock()
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="999",
         name="Ops Home",
     )
@@ -1574,10 +1577,10 @@ async def test_restart_home_channel_notification_dedupes_active_chat():
 async def test_restart_home_channel_notification_not_deduped_across_threads():
     runner, adapter = make_restart_runner()
     runner._restart_requested = True
-    session_key = "agent:main:telegram:group:999"
+    session_key = "agent:main:feishu:group:999"
     runner.session_store._entries[session_key] = MagicMock(
         origin=SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="999",
             chat_type="group",
             user_id="u1",
@@ -1585,8 +1588,8 @@ async def test_restart_home_channel_notification_not_deduped_across_threads():
         )
     )
     runner._running_agents[session_key] = MagicMock()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="999",
         name="Ops Home",
     )
@@ -1602,8 +1605,8 @@ async def test_restart_home_channel_notification_not_deduped_across_threads():
 async def test_restart_home_channel_notification_ignores_false_send_result():
     runner, adapter = make_restart_runner()
     runner._restart_requested = True
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
@@ -1721,7 +1724,7 @@ class TestStuckLoopEscalation:
 
         source = _make_source()
         session_key = _make_store(tmp_path).get_or_create_session(source).session_key
-        other_key = "agent:main:telegram:dm:other"
+        other_key = "agent:main:feishu:dm:other"
         counts_file = tmp_path / ".restart_failure_counts"
         counts_file.write_text(
             json.dumps({session_key: 2, other_key: 1}),
@@ -1761,12 +1764,12 @@ async def test_auto_resume_sets_sentinel_before_task_execution():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="race-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:race-chat",
+        session_key="agent:main:feishu:dm:race-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -1807,12 +1810,12 @@ async def test_auto_resume_sentinel_cleaned_on_task_failure():
     runner, adapter = make_restart_runner()
     source = make_restart_source(chat_id="fail-chat")
     pending_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:fail-chat",
+        session_key="agent:main:feishu:dm:fail-chat",
         session_id="sid",
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",
@@ -1874,7 +1877,7 @@ async def test_auto_resume_runs_agent_exactly_once_through_full_path():
         created_at=datetime.now(),
         updated_at=datetime.now(),
         origin=source,
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         resume_pending=True,
         resume_reason="restart_interrupted",

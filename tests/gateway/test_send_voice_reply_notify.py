@@ -1,8 +1,8 @@
 """Regression test for issue #27970 Bug 2.
 
-The auto Telegram voice reply (``GatewayRunner._send_voice_reply``) is the
+The auto Feishu voice reply (``GatewayRunner._send_voice_reply``) is the
 final response of a turn. It must mark its metadata as ``notify=True`` so
-adapters that gate push notifications (Telegram's "important" mode) deliver
+adapters that gate push notifications (the final response delivery path) deliver
 it as a normal push instead of a silent message — mirroring the existing
 final-text path in ``gateway/platforms/base.py``.
 """
@@ -23,10 +23,10 @@ from gateway.session import SessionSource
 
 def _make_event(thread_id=None):
     source = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="208214988",
         user_id="208214988",
-        chat_type="dm",
+        chat_type="thread",
         thread_id=thread_id,
     )
     return MessageEvent(
@@ -43,7 +43,7 @@ def _runner_with_adapter(send_voice_mock):
         send_voice=send_voice_mock,
         is_in_voice_channel=lambda *_a, **_k: False,
     )
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
     return runner
 
 
@@ -93,7 +93,7 @@ async def test_voice_reply_marks_existing_thread_metadata_without_mutation(monke
     send_voice = AsyncMock()
     runner = _runner_with_adapter(send_voice)
     # Use a DM topic source so _thread_metadata_for_source returns a non-None dict.
-    event = _make_event(thread_id="17585")
+    event = _make_event(thread_id="thread_17585")
     source_meta_snapshot = runner._thread_metadata_for_source(
         event.source, runner._reply_anchor_for_event(event)
     )

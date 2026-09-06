@@ -41,7 +41,6 @@ def _make_runner(**attrs):
 
     runner = object.__new__(GatewayRunner)
     runner._session_ephemeral_pin = {}
-    runner._session_vc_last = {}
     runner._pending_turn_sidecar_notes = {}
     runner._session_model_overrides = {}
     runner._session_reasoning_overrides = {}
@@ -54,7 +53,7 @@ def _make_runner(**attrs):
 
 def _make_context(
     *,
-    platform: Platform = Platform.DISCORD,
+    platform: Platform = Platform.FEISHU,
     chat_id: str = "111222333",
     chat_name: str = "general",
     chat_type: str = "channel",
@@ -82,11 +81,11 @@ def _make_context(
         scope_id=guild_id,
         message_id=message_id,
     )
-    connected = connected if connected is not None else [Platform.DISCORD, Platform.TELEGRAM]
+    connected = connected if connected is not None else [Platform.FEISHU]
     if home_channels is None:
         home_channels = {
-            Platform.DISCORD: HomeChannel(
-                platform=Platform.DISCORD, chat_id="111222333", name="general"
+            Platform.FEISHU: HomeChannel(
+                platform=Platform.FEISHU, chat_id="oc_abc123", name="general"
             ),
         }
     return SessionContext(
@@ -95,13 +94,6 @@ def _make_context(
         home_channels=home_channels,
         shared_multi_user_session=shared_multi_user,
     )
-
-
-@pytest.fixture(autouse=True)
-def _stable_discord_tools(monkeypatch):
-    """Pin the config/env-dependent renderer gate so key<->render parity is
-    evaluated on the same footing in every environment."""
-    monkeypatch.setattr("gateway.session._discord_tools_loaded", lambda: True)
 
 
 def _key(runner, context, redact_pii=False):
@@ -133,14 +125,12 @@ class TestEphemeralChangeKeyParity:
         ("guild_id", dict(guild_id="123123123")),
         ("parent_chat_id", dict(parent_chat_id="999000111")),
         ("chat_id", dict(chat_id="999999999", parent_chat_id="999999999")),
-        ("platform", dict(platform=Platform.TELEGRAM)),
-        ("connected_platforms", dict(connected=[Platform.DISCORD])),
         (
             "home_channel_renamed",
             dict(
                 home_channels={
-                    Platform.DISCORD: HomeChannel(
-                        platform=Platform.DISCORD, chat_id="111222333", name="ops-home"
+                    Platform.FEISHU: HomeChannel(
+                        platform=Platform.FEISHU, chat_id="111222333", name="ops-home"
                     )
                 }
             ),
@@ -149,11 +139,8 @@ class TestEphemeralChangeKeyParity:
             "home_channel_added",
             dict(
                 home_channels={
-                    Platform.DISCORD: HomeChannel(
-                        platform=Platform.DISCORD, chat_id="111222333", name="general"
-                    ),
-                    Platform.TELEGRAM: HomeChannel(
-                        platform=Platform.TELEGRAM, chat_id="tg1", name="tg-home"
+                    Platform.FEISHU: HomeChannel(
+                        platform=Platform.FEISHU, chat_id="oc_second", name="secondary-home"
                     ),
                 }
             ),
@@ -175,22 +162,6 @@ class TestEphemeralChangeKeyParity:
                 f"mutation {name!r} changed the rendered bytes but not the "
                 "change key — the pin would serve STALE context"
             )
-
-    def test_redact_pii_flip_changes_key(self):
-        # PII redaction only rewrites bytes on pii-safe platforms; the key
-        # must react wherever the render does.
-        runner = _make_runner()
-        ctx = _make_context(platform=Platform.TELEGRAM, thread_id=None, parent_chat_id=None)
-        assert _render(ctx, False) != _render(ctx, True)
-        assert _key(runner, ctx, False) != _key(runner, ctx, True)
-
-    def test_discord_tools_gate_flip_changes_key(self, monkeypatch):
-        runner = _make_runner()
-        ctx = _make_context()
-        render_on, key_on = _render(ctx), _key(runner, ctx)
-        monkeypatch.setattr("gateway.session._discord_tools_loaded", lambda: False)
-        assert _render(ctx) != render_on
-        assert _key(runner, ctx) != key_on
 
     def test_message_id_value_change_is_not_a_bust(self):
         """Only message-id PRESENCE renders (the id itself rides the user
@@ -239,15 +210,13 @@ class TestSessionContextPin:
         assert t3 is t2
         assert "Fixing the flaky deploy" in t2
 
-    def test_eviction_drops_pin_and_vc_state(self):
+    def test_eviction_drops_pin(self):
         runner = _make_runner(
             _agent_cache={}, _running_agents={},
         )
         runner._session_ephemeral_pin["sk"] = ("k", "text")
-        runner._session_vc_last["sk"] = "vc"
         runner._evict_cached_agent("sk")  # noqa: SLF001
         assert "sk" not in runner._session_ephemeral_pin
-        assert "sk" not in runner._session_vc_last
 
     def test_no_session_key_never_pins(self):
         runner = _make_runner()
@@ -309,10 +278,6 @@ class TestComposedPromptByteStability:
 # 4. Voice-channel sidecar note: only-when-changed
 # ---------------------------------------------------------------------------
 
-def _source():
-    return SessionSource(
-        platform=Platform.DISCORD, chat_id="c1", chat_type="channel", user_id="u1"
-    )
 
 
 class _VcAdapter:
@@ -323,49 +288,10 @@ class _VcAdapter:
         return self.value
 
 
-def _vc_runner(vc_value):
-    adapter = _VcAdapter(vc_value)
-    runner = _make_runner(adapters={Platform.DISCORD: adapter})
-    return runner, adapter
 
 
-def _vc_event():
-    return SimpleNamespace(raw_message=SimpleNamespace(guild_id="777"))
 
 
-class TestVoiceChannelSidecarNote:
-    def test_first_sighting_injects(self):
-        runner, _ = _vc_runner("**Voice:** dev-vc (2 members)")
-        note = runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert note == "[Voice channel now: **Voice:** dev-vc (2 members)]"
-
-    def test_unchanged_state_injects_nothing(self):
-        runner, _ = _vc_runner("**Voice:** dev-vc (2 members)")
-        assert runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk") is None  # noqa: SLF001
-
-    def test_member_change_injects_again(self):
-        runner, adapter = _vc_runner("**Voice:** dev-vc (2 members)")
-        runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        adapter.value = "**Voice:** dev-vc (3 members)"
-        note = runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert note == "[Voice channel now: **Voice:** dev-vc (3 members)]"
-
-    def test_leaving_channel_injects_disconnect_note(self):
-        runner, adapter = _vc_runner("**Voice:** dev-vc (2 members)")
-        runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        adapter.value = ""
-        note = runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk")  # noqa: SLF001
-        assert note == "[Voice channel now: not connected to a voice channel]"
-
-    def test_never_in_channel_injects_nothing(self):
-        runner, _ = _vc_runner("")
-        assert runner._voice_channel_sidecar_note(_vc_event(), _source(), "sk") is None  # noqa: SLF001
-
-    def test_non_discord_platform_is_noop(self):
-        runner, _ = _vc_runner("**Voice:** dev-vc")
-        src = SessionSource(platform=Platform.TELEGRAM, chat_id="c", user_id="u")
-        assert runner._voice_channel_sidecar_note(_vc_event(), src, "sk") is None  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -394,15 +320,12 @@ class TestSidecarNoteStaging:
 class TestConnectedPlatformsOrder:
     def test_sorted_regardless_of_insertion_order(self):
         cfg_a = GatewayConfig(
-            platforms={
-                Platform.TELEGRAM: PlatformConfig(enabled=True, token="t"),
-                Platform.DISCORD: PlatformConfig(enabled=True, token="d"),
-            }
+            platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="t")}
         )
         cfg_b = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(enabled=True, token="d"),
-                Platform.TELEGRAM: PlatformConfig(enabled=True, token="t"),
+                Platform.FEISHU: PlatformConfig(enabled=True, token="d"),
+                Platform.FEISHU: PlatformConfig(enabled=True, token="t"),
             }
         )
         assert cfg_a.get_connected_platforms() == cfg_b.get_connected_platforms()

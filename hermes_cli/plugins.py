@@ -1340,9 +1340,13 @@ class PluginManager:
         )
         logger.debug("  bundled (top-level): %d manifest(s)", len(bundled))
         manifests.extend(bundled)
-        bundled_platforms = self._scan_directory(
-            repo_plugins / "platforms", source="bundled"
-        )
+        bundled_platforms = [
+            manifest
+            for manifest in self._scan_directory(
+                repo_plugins / "platforms", source="bundled"
+            )
+            if self._platform_name_from_manifest(manifest) == "feishu"
+        ]
         logger.debug("  bundled/platforms: %d manifest(s)", len(bundled_platforms))
         manifests.extend(bundled_platforms)
 

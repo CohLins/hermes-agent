@@ -1,8 +1,4 @@
-"""Tests for /title gateway slash command.
-
-Tests the _handle_title_command handler (set/show session titles)
-across all gateway messenger platforms.
-"""
+"""Tests for the gateway /title command."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -14,7 +10,7 @@ from gateway.platforms.base import MessageEvent
 from gateway.session import SessionSource
 
 
-def _make_event(text="/title", platform=Platform.TELEGRAM,
+def _make_event(text="/title", platform=Platform.FEISHU,
                 user_id="12345", chat_id="67890"):
     """Build a MessageEvent for testing."""
     source = SessionSource(
@@ -41,7 +37,7 @@ def _make_runner(session_db=None):
     # Mock session_store that returns a session entry with a known session_id
     mock_session_entry = MagicMock()
     mock_session_entry.session_id = "test_session_123"
-    mock_session_entry.session_key = "telegram:12345:67890"
+    mock_session_entry.session_key = "feishu:12345:67890"
     mock_store = MagicMock()
     mock_store.get_or_create_session.return_value = mock_session_entry
     runner.session_store = mock_store
@@ -62,7 +58,7 @@ class TestHandleTitleCommand:
         """Setting a title returns confirmation."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
 
         runner = _make_runner(session_db=db)
         event = _make_event(text="/title My Research Project")
@@ -79,7 +75,7 @@ class TestHandleTitleCommand:
         """Showing title when one is set returns the title."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
         db.set_session_title("test_session_123", "Existing Title")
 
         runner = _make_runner(session_db=db)
@@ -94,7 +90,7 @@ class TestHandleTitleCommand:
         """Showing title when none is set returns usage hint."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
 
         runner = _make_runner(session_db=db)
         event = _make_event(text="/title")
@@ -108,9 +104,9 @@ class TestHandleTitleCommand:
         """Setting a title already used by another session returns error."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("other_session", "telegram")
+        db.create_session("other_session", "feishu")
         db.set_session_title("other_session", "Taken Title")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
 
         runner = _make_runner(session_db=db)
         event = _make_event(text="/title Taken Title")
@@ -132,7 +128,7 @@ class TestHandleTitleCommand:
         """Setting a title that exceeds max length returns error."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
 
         runner = _make_runner(session_db=db)
         long_title = "A" * 150
@@ -147,7 +143,7 @@ class TestHandleTitleCommand:
         """Control characters are stripped and sanitized title is stored."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
 
         runner = _make_runner(session_db=db)
         event = _make_event(text="/title hello\x00world")
@@ -161,7 +157,7 @@ class TestHandleTitleCommand:
         """Title with only control chars returns empty error."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
+        db.create_session("test_session_123", "feishu")
 
         runner = _make_runner(session_db=db)
         event = _make_event(text="/title \x00\x01\x02")
@@ -170,55 +166,18 @@ class TestHandleTitleCommand:
         db.close()
 
     @pytest.mark.asyncio
-    async def test_set_title_propagates_to_telegram_topic_rename(self, tmp_path):
-        """/title <name> also renames the visible Telegram topic, not just the DB."""
+    async def test_works_for_feishu(self, tmp_path):
+        """The /title command persists titles for Feishu sessions."""
         from hermes_state import SessionDB
-        db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
 
+        db = SessionDB(db_path=tmp_path / "state_feishu.db")
+        db.create_session("test_session_123", Platform.FEISHU.value)
         runner = _make_runner(session_db=db)
-        runner._schedule_telegram_topic_title_rename = MagicMock()
-
-        event = _make_event(text="/title My Topic Name")
+        event = _make_event(text="/title Feishu Session", platform=Platform.FEISHU)
         result = await runner._handle_title_command(event)
-
-        assert "My Topic Name" in result
-        runner._schedule_telegram_topic_title_rename.assert_called_once_with(
-            event.source, "test_session_123", "My Topic Name"
-        )
+        assert "Feishu Session" in result
+        assert db.get_session_title("test_session_123") == "Feishu Session"
         db.close()
-
-    @pytest.mark.asyncio
-    async def test_show_title_does_not_rename_topic(self, tmp_path):
-        """Showing the title (no arg) must not trigger a topic rename."""
-        from hermes_state import SessionDB
-        db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("test_session_123", "telegram")
-        db.set_session_title("test_session_123", "Existing Title")
-
-        runner = _make_runner(session_db=db)
-        runner._schedule_telegram_topic_title_rename = MagicMock()
-
-        event = _make_event(text="/title")
-        await runner._handle_title_command(event)
-
-        runner._schedule_telegram_topic_title_rename.assert_not_called()
-        db.close()
-
-    @pytest.mark.asyncio
-    async def test_works_across_platforms(self, tmp_path):
-        """The /title command works for Discord, Slack, and WhatsApp too."""
-        from hermes_state import SessionDB
-        for platform in [Platform.DISCORD, Platform.TELEGRAM]:
-            db = SessionDB(db_path=tmp_path / f"state_{platform.value}.db")
-            db.create_session("test_session_123", platform.value)
-
-            runner = _make_runner(session_db=db)
-            event = _make_event(text="/title Cross-Platform Test", platform=platform)
-            result = await runner._handle_title_command(event)
-            assert "Cross-Platform Test" in result
-            assert db.get_session_title("test_session_123") == "Cross-Platform Test"
-            db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -266,11 +225,11 @@ class TestResetCommandWithTitle:
 
         runner = object.__new__(GatewayRunner)
         runner.config = GatewayConfig(
-            platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")}
+            platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="***")}
         )
         adapter = MagicMock()
         adapter.send = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: adapter}
+        runner.adapters = {Platform.FEISHU: adapter}
         runner._voice_mode = {}
         runner.hooks = SimpleNamespace(emit=AsyncMock(), loaded_hooks=False)
         runner._session_model_overrides = {}
@@ -278,7 +237,7 @@ class TestResetCommandWithTitle:
         runner._background_tasks = set()
 
         source = SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             user_id="12345",
             chat_id="67890",
             user_name="testuser",
@@ -289,7 +248,7 @@ class TestResetCommandWithTitle:
             session_id="sess-new",
             created_at=datetime.now(),
             updated_at=datetime.now(),
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_type="dm",
         )
         runner.session_store = MagicMock()
@@ -326,11 +285,11 @@ class TestResetCommandWithTitle:
 
         runner = object.__new__(GatewayRunner)
         runner.config = GatewayConfig(
-            platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")}
+            platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="***")}
         )
         adapter = MagicMock()
         adapter.send = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: adapter}
+        runner.adapters = {Platform.FEISHU: adapter}
         runner._voice_mode = {}
         runner.hooks = SimpleNamespace(emit=AsyncMock(), loaded_hooks=False)
         runner._session_model_overrides = {}
@@ -338,7 +297,7 @@ class TestResetCommandWithTitle:
         runner._background_tasks = set()
 
         source = SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             user_id="12345",
             chat_id="67890",
             user_name="testuser",
@@ -349,7 +308,7 @@ class TestResetCommandWithTitle:
             session_id="sess-new",
             created_at=datetime.now(),
             updated_at=datetime.now(),
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_type="dm",
         )
         runner.session_store = MagicMock()

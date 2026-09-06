@@ -1,10 +1,9 @@
 """Tests for opt-in cleanup of temporary progress bubbles.
 
 When ``display.platforms.<plat>.cleanup_progress: true`` is set for a
-platform whose adapter supports message deletion (e.g. Telegram), the
-tool-progress bubble, "⏳ Working — N min" heartbeats, and status-callback
-messages sent during a run are deleted after the final response is
-delivered.
+platform whose adapter supports message deletion, the tool-progress bubble,
+"⏳ Working — N min" heartbeats, and status-callback messages sent during a
+run are deleted after the final response is delivered.
 
 Failed runs skip cleanup so the bubbles remain as breadcrumbs.
 Adapters without ``delete_message`` silently no-op.
@@ -47,7 +46,7 @@ class CleanupCaptureAdapter(BasePlatformAdapter):
 
     _next_mid = 100
 
-    def __init__(self, platform=Platform.TELEGRAM):
+    def __init__(self, platform=Platform.FEISHU):
         super().__init__(PlatformConfig(enabled=True, token="***"), platform)
         self.sent = []
         self.edits = []
@@ -187,7 +186,7 @@ def _install_fakes(monkeypatch, agent_cls, *, cleanup_on: bool):
     cfg = {
         "display": {
             "platforms": {
-                "telegram": {"cleanup_progress": True},
+                "feishu": {"cleanup_progress": True},
             }
         }
     } if cleanup_on else {}
@@ -209,8 +208,8 @@ async def test_cleanup_off_by_default_leaves_bubbles(monkeypatch, tmp_path):
     gateway_run = _install_fakes(monkeypatch, ProgressAgent, cleanup_on=False)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id="-1001")
-    session_key = "agent:main:telegram:group:-1001"
+    source = SessionSource(platform=Platform.FEISHU, chat_id="oc_1001")
+    session_key = "agent:main:feishu:group:oc_1001"
 
     result = await runner._run_agent(
         message="hello",
@@ -241,8 +240,8 @@ async def test_cleanup_registers_callback_and_deletes_on_success(monkeypatch, tm
     gateway_run = _install_fakes(monkeypatch, ProgressAgent, cleanup_on=True)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id="-1001")
-    session_key = "agent:main:telegram:group:-1001"
+    source = SessionSource(platform=Platform.FEISHU, chat_id="oc_1001")
+    session_key = "agent:main:feishu:group:oc_1001"
 
     result = await runner._run_agent(
         message="hello",
@@ -271,7 +270,7 @@ async def test_cleanup_registers_callback_and_deletes_on_success(monkeypatch, tm
     # At least the first tool-progress bubble should have been deleted.
     assert len(adapter.deleted) >= 1, f"deleted={adapter.deleted} sent={adapter.sent}"
     for entry in adapter.deleted:
-        assert entry["chat_id"] == "-1001"
+        assert entry["chat_id"] == "oc_1001"
 
 
 @pytest.mark.asyncio
@@ -282,8 +281,8 @@ async def test_cleanup_skipped_on_failed_run(monkeypatch, tmp_path):
     gateway_run = _install_fakes(monkeypatch, FailingAgent, cleanup_on=True)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id="-1001")
-    session_key = "agent:main:telegram:group:-1001"
+    source = SessionSource(platform=Platform.FEISHU, chat_id="oc_1001")
+    session_key = "agent:main:feishu:group:oc_1001"
 
     result = await runner._run_agent(
         message="hello",
@@ -315,8 +314,8 @@ async def test_cleanup_noop_on_adapter_without_delete_support(monkeypatch, tmp_p
     gateway_run = _install_fakes(monkeypatch, ProgressAgent, cleanup_on=True)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id="-1001")
-    session_key = "agent:main:telegram:group:-1001"
+    source = SessionSource(platform=Platform.FEISHU, chat_id="oc_1001")
+    session_key = "agent:main:feishu:group:oc_1001"
 
     result = await runner._run_agent(
         message="hello",
@@ -343,8 +342,8 @@ async def test_cleanup_chains_with_existing_callback(monkeypatch, tmp_path):
     gateway_run = _install_fakes(monkeypatch, ProgressAgent, cleanup_on=True)
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
-    source = SessionSource(platform=Platform.TELEGRAM, chat_id="-1001")
-    session_key = "agent:main:telegram:group:-1001"
+    source = SessionSource(platform=Platform.FEISHU, chat_id="oc_1001")
+    session_key = "agent:main:feishu:group:oc_1001"
 
     pre_existing_fired = []
 

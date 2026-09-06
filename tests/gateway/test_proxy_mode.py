@@ -24,13 +24,13 @@ def _make_runner(proxy_url=None):
     return runner
 
 
-def _make_source(platform=Platform.MATRIX):
+def _make_source(platform=Platform.FEISHU):
     return SessionSource(
         platform=platform,
-        chat_id="!room:server.org",
+        chat_id="oc_test-room",
         chat_name="Test Room",
         chat_type="group",
-        user_id="@user:server.org",
+        user_id="ou_test-user",
         user_name="testuser",
         thread_id=None,
     )
@@ -279,6 +279,70 @@ class TestRunAgentViaProxy:
 
         # Verify response was assembled
         assert result["final_response"] == "Hello world"
+
+    @pytest.mark.asyncio
+    async def test_feishu_streaming_initializes_consumer_without_finalize_callback(self, monkeypatch):
+        monkeypatch.setenv("GATEWAY_PROXY_URL", "http://host:8642")
+        monkeypatch.delenv("GATEWAY_PROXY_KEY", raising=False)
+        runner = _make_runner()
+        runner.config.streaming = StreamingConfig(
+            enabled=True,
+            transport="edit",
+            edit_interval=0,
+            buffer_threshold=1,
+        )
+        runner._adapter_for_source = lambda _source: object()
+        runner._thread_metadata_for_source = lambda *_args: None
+        source = _make_source()
+        resp = _FakeSSEResponse(
+            status=200,
+            sse_chunks=[
+                'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+                'data: {"choices":[{"delta":{"content":" world"}}]}\n\n',
+                "data: [DONE]\n\n",
+            ],
+        )
+        session = _FakeSession(resp)
+
+        class CapturingStreamConsumer:
+            instances = []
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.deltas = []
+                self.finished = False
+                self.__class__.instances.append(self)
+
+            async def run(self):
+                return None
+
+            def on_delta(self, content):
+                self.deltas.append(content)
+
+            def finish(self):
+                self.finished = True
+
+        with patch("gateway.run._load_gateway_config", return_value={}):
+            with _patch_aiohttp(session):
+                with patch("aiohttp.ClientTimeout"):
+                    with patch(
+                        "gateway.stream_consumer.GatewayStreamConsumer",
+                        CapturingStreamConsumer,
+                    ):
+                        result = await runner._run_agent_via_proxy(
+                            message="hi",
+                            context_prompt="",
+                            history=[],
+                            source=source,
+                            session_id="test",
+                        )
+
+        assert result["final_response"] == "Hello world"
+        assert len(CapturingStreamConsumer.instances) == 1
+        consumer = CapturingStreamConsumer.instances[0]
+        assert consumer.deltas == ["Hello", " world"]
+        assert consumer.finished is True
+        assert "on_before_finalize" not in consumer.kwargs
 
     @pytest.mark.asyncio
     async def test_handles_http_error(self, monkeypatch):

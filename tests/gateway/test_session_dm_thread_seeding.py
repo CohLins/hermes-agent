@@ -1,17 +1,8 @@
-"""Tests for DM thread session isolation.
+"""Tests for Feishu DM and group thread session isolation.
 
-DM thread sessions must start empty — no parent transcript seeding.
-Thread context is handled by platform adapters (e.g. Slack's
-_fetch_thread_context fetches actual thread replies via the API).
-Session-level seeding was removed because it copied the ENTIRE parent
-DM transcript, causing unrelated conversations to bleed across threads.
-
-Covers:
-- Thread sessions start empty (no parent seeding)
-- Group/channel thread sessions also start empty
-- Multiple threads from same parent are independent
-- Existing thread sessions are not mutated on re-access
-- Cross-platform: consistent behavior for Slack, Telegram, Discord
+Thread sessions must start empty — no parent transcript seeding. Thread
+context is handled by platform adapters; session-level seeding was removed
+because it copied the entire parent transcript across unrelated conversations.
 """
 
 import pytest
@@ -36,7 +27,7 @@ def store(tmp_path, monkeypatch):
     return s
 
 
-def _dm_source(platform=Platform.SLACK, chat_id="D123", thread_id=None, user_id="U1"):
+def _dm_source(platform=Platform.FEISHU, chat_id="ou_user-123", thread_id=None, user_id="ou_user-123"):
     return SessionSource(
         platform=platform,
         chat_id=chat_id,
@@ -46,7 +37,7 @@ def _dm_source(platform=Platform.SLACK, chat_id="D123", thread_id=None, user_id=
     )
 
 
-def _group_source(platform=Platform.SLACK, chat_id="C456", thread_id=None, user_id="U1"):
+def _group_source(platform=Platform.FEISHU, chat_id="oc_group-456", thread_id=None, user_id="ou_user-123"):
     return SessionSource(
         platform=platform,
         chat_id=chat_id,
@@ -179,9 +170,9 @@ class TestDMThreadIsolationEdgeCases:
 
 
 class TestDMThreadIsolationCrossPlatform:
-    """Verify thread isolation is consistent across all platforms."""
+    """Verify thread isolation for the retained Feishu and API platforms."""
 
-    @pytest.mark.parametrize("platform", [Platform.SLACK, Platform.TELEGRAM, Platform.DISCORD])
+    @pytest.mark.parametrize("platform", [Platform.FEISHU, Platform.API_SERVER])
     def test_thread_starts_empty_across_platforms(self, store, platform):
         """DM thread sessions start empty regardless of platform."""
         parent_source = _dm_source(platform=platform)

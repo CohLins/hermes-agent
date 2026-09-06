@@ -1065,25 +1065,16 @@ class MessagingPlatformUpdate(BaseModel):
     profile: Optional[str] = None
 
 
-class TelegramOnboardingStart(BaseModel):
-    bot_name: Optional[str] = None
 
 
-class TelegramOnboardingApply(BaseModel):
-    allowed_user_ids: List[str]
-    profile: Optional[str] = None
 
 
-class WhatsAppOnboardingStart(BaseModel):
-    mode: Optional[str] = "bot"
-    allowed_users: Optional[str] = ""
-    profile: Optional[str] = None
 
 
-class WhatsAppOnboardingApply(BaseModel):
-    mode: Optional[str] = None
-    allowed_users: Optional[str] = None
-    profile: Optional[str] = None
+
+
+
+
 
 
 class AudioTranscriptionRequest(BaseModel):
@@ -3612,28 +3603,6 @@ def _spawn_gateway_restart(profile: Optional[str] = None) -> Tuple[subprocess.Po
             return existing, True
         raise RuntimeError("gateway restart already in progress for another profile")
     return _spawn_hermes_action(subcommand, "gateway-restart"), False
-
-
-def _restart_gateway_after_webhook_enable(profile: Optional[str] = None) -> dict[str, Any]:
-    """Best-effort gateway restart after enabling the webhook platform."""
-    try:
-        proc, reused = _spawn_gateway_restart(profile)
-    except Exception as exc:
-        _log.exception("Failed to auto-restart gateway after enabling webhooks")
-        return {
-            "restart_started": False,
-            "restart_error": str(exc),
-        }
-    if reused:
-        _log.info(
-            "Webhook enable: reusing in-flight gateway restart (pid %s)",
-            proc.pid,
-        )
-    return {
-        "restart_started": True,
-        "restart_action": "gateway-restart",
-        "restart_pid": proc.pid,
-    }
 
 
 @app.post("/api/gateway/restart")
@@ -7309,107 +7278,6 @@ async def reveal_env_var(
 # in env_vars from OPTIONAL_ENV_VARS via prefix matching when not specified,
 # and pulls required_env from a plugin's PlatformEntry when available.
 _PLATFORM_OVERRIDES: dict[str, dict[str, Any]] = {
-    "telegram": {
-        "name": "Telegram",
-        "description": "Run Hermes from Telegram DMs, groups, and topics.",
-        "docs_url": "https://core.telegram.org/bots/features#botfather",
-        "env_vars": ("TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USERS", "TELEGRAM_PROXY"),
-        "required_env": ("TELEGRAM_BOT_TOKEN",),
-    },
-    "discord": {
-        "name": "Discord",
-        "description": "Connect Hermes to Discord DMs, channels, and threads.",
-        "docs_url": "https://discord.com/developers/applications",
-        "env_vars": (
-            "DISCORD_BOT_TOKEN",
-            "DISCORD_ALLOWED_USERS",
-            "DISCORD_REPLY_TO_MODE",
-        ),
-        "required_env": ("DISCORD_BOT_TOKEN",),
-    },
-    "slack": {
-        "name": "Slack",
-        "description": "Use Hermes from Slack via Socket Mode. Add allowed Slack member IDs so connected bots can respond.",
-        "docs_url": "https://api.slack.com/apps",
-        "env_vars": ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN", "SLACK_ALLOWED_USERS"),
-        "required_env": ("SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"),
-    },
-    "mattermost": {
-        "name": "Mattermost",
-        "description": "Connect Hermes to Mattermost channels and direct messages.",
-        "docs_url": "https://mattermost.com/deploy/",
-        "env_vars": ("MATTERMOST_URL", "MATTERMOST_TOKEN", "MATTERMOST_ALLOWED_USERS"),
-        "required_env": ("MATTERMOST_URL", "MATTERMOST_TOKEN"),
-    },
-    "matrix": {
-        "name": "Matrix",
-        "description": "Use Hermes in Matrix rooms and direct messages.",
-        "docs_url": "https://matrix.org/ecosystem/servers/",
-        "env_vars": (
-            "MATRIX_HOMESERVER",
-            "MATRIX_ACCESS_TOKEN",
-            "MATRIX_USER_ID",
-            "MATRIX_ALLOWED_USERS",
-        ),
-        "required_env": ("MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN", "MATRIX_USER_ID"),
-    },
-    "signal": {
-        "name": "Signal",
-        "description": "Connect through a signal-cli REST bridge.",
-        "docs_url": "https://github.com/bbernhard/signal-cli-rest-api",
-        "env_vars": ("SIGNAL_HTTP_URL", "SIGNAL_ACCOUNT", "SIGNAL_ALLOWED_USERS"),
-        "required_env": ("SIGNAL_HTTP_URL", "SIGNAL_ACCOUNT"),
-    },
-    "whatsapp": {
-        "name": "WhatsApp",
-        "description": "Use Hermes through the bundled WhatsApp bridge with QR-based auth.",
-        "docs_url": "https://github.com/tulir/whatsmeow",
-        "env_vars": (
-            "WHATSAPP_ENABLED",
-            "WHATSAPP_MODE",
-            "WHATSAPP_DM_POLICY",
-            "WHATSAPP_ALLOWED_USERS",
-        ),
-        "required_env": (),
-    },
-    "homeassistant": {
-        "name": "Home Assistant",
-        "description": "Control your smart home from Hermes via Home Assistant.",
-        "docs_url": "https://www.home-assistant.io/docs/authentication/",
-        "env_vars": ("HASS_URL", "HASS_TOKEN"),
-        "required_env": ("HASS_URL", "HASS_TOKEN"),
-    },
-    "email": {
-        "name": "Email",
-        "description": "Talk to Hermes through an IMAP/SMTP mailbox.",
-        "docs_url": "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/",
-        "env_vars": (
-            "EMAIL_ADDRESS",
-            "EMAIL_PASSWORD",
-            "EMAIL_IMAP_HOST",
-            "EMAIL_SMTP_HOST",
-        ),
-        "required_env": (
-            "EMAIL_ADDRESS",
-            "EMAIL_PASSWORD",
-            "EMAIL_IMAP_HOST",
-            "EMAIL_SMTP_HOST",
-        ),
-    },
-    "sms": {
-        "name": "SMS (Twilio)",
-        "description": "Send and receive text messages via Twilio.",
-        "docs_url": "https://www.twilio.com/console",
-        "env_vars": ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"),
-        "required_env": ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"),
-    },
-    "dingtalk": {
-        "name": "DingTalk",
-        "description": "Connect Hermes to DingTalk groups (钉钉).",
-        "docs_url": "https://open.dingtalk.com/document/orgapp/the-robot-development-process",
-        "env_vars": ("DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET"),
-        "required_env": ("DINGTALK_CLIENT_ID", "DINGTALK_CLIENT_SECRET"),
-    },
     "feishu": {
         "name": "Feishu / Lark",
         "description": "Use Hermes inside Feishu / Lark.",
@@ -7422,76 +7290,10 @@ _PLATFORM_OVERRIDES: dict[str, dict[str, Any]] = {
         ),
         "required_env": ("FEISHU_APP_ID", "FEISHU_APP_SECRET"),
     },
-    "google_chat": {
-        "name": "Google Chat",
-        "description": "Connect Hermes to Google Chat via Cloud Pub/Sub.",
-        "docs_url": "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/google_chat",
-    },
-    "wecom": {
-        "name": "WeCom (group bot)",
-        "description": "Send-only WeCom group bot via webhook.",
-        "docs_url": "https://developer.work.weixin.qq.com/document/path/91770",
-        "env_vars": ("WECOM_BOT_ID", "WECOM_SECRET"),
-        "required_env": ("WECOM_BOT_ID",),
-    },
-    "wecom_callback": {
-        "name": "WeCom (app)",
-        "description": "Two-way WeCom integration via callback app.",
-        "docs_url": "https://developer.work.weixin.qq.com/document/path/90930",
-        "env_vars": (
-            "WECOM_CALLBACK_CORP_ID",
-            "WECOM_CALLBACK_CORP_SECRET",
-            "WECOM_CALLBACK_AGENT_ID",
-            "WECOM_CALLBACK_TOKEN",
-            "WECOM_CALLBACK_ENCODING_AES_KEY",
-        ),
-        "required_env": (
-            "WECOM_CALLBACK_CORP_ID",
-            "WECOM_CALLBACK_CORP_SECRET",
-            "WECOM_CALLBACK_AGENT_ID",
-        ),
-    },
-    "weixin": {
-        "name": "Weixin / WeChat (Personal)",
-        "description": "Connect a personal WeChat account through Tencent's iLink Bot API.",
-        "docs_url": "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/weixin/",
-        "env_vars": ("WEIXIN_ACCOUNT_ID", "WEIXIN_TOKEN", "WEIXIN_BASE_URL"),
-        "required_env": ("WEIXIN_ACCOUNT_ID", "WEIXIN_TOKEN"),
-    },
-    "bluebubbles": {
-        "name": "BlueBubbles (iMessage)",
-        "description": "Use Hermes through iMessage via a BlueBubbles server.",
-        "docs_url": "https://bluebubbles.app/",
-        "env_vars": (
-            "BLUEBUBBLES_SERVER_URL",
-            "BLUEBUBBLES_PASSWORD",
-            "BLUEBUBBLES_ALLOWED_USERS",
-        ),
-        "required_env": ("BLUEBUBBLES_SERVER_URL", "BLUEBUBBLES_PASSWORD"),
-    },
-    "qqbot": {
-        "name": "QQ Bot",
-        "description": "Connect Hermes to a QQ Bot from the QQ Open Platform.",
-        "docs_url": "https://q.qq.com",
-        "env_vars": ("QQ_APP_ID", "QQ_CLIENT_SECRET", "QQ_ALLOWED_USERS"),
-        "required_env": ("QQ_APP_ID", "QQ_CLIENT_SECRET"),
-    },
-    # Teams ships as a platform plugin, so its name/env vars come from the
-    # plugin registry. Only the docs link needs an override here so the
-    # Channels page can point at the Microsoft Teams setup guide.
-    "teams": {
-        "docs_url": "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/teams",
-    },
-    "yuanbao": {
-        "name": "Yuanbao (元宝)",
-        "description": "Connect Hermes to Tencent Yuanbao.",
-        "docs_url": "",
-        "required_env": (),
-    },
     "api_server": {
         "name": "API server",
-        "description": "Expose Hermes as an OpenAI-compatible HTTP API for tools like Open WebUI.",
-        "docs_url": "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/",
+        "description": "Expose Hermes as an OpenAI-compatible HTTP API for campagin-ai-web.",
+        "docs_url": "",
         "env_vars": (
             "API_SERVER_ENABLED",
             "API_SERVER_KEY",
@@ -7501,154 +7303,18 @@ _PLATFORM_OVERRIDES: dict[str, dict[str, Any]] = {
         ),
         "required_env": (),
     },
-    "webhook": {
-        "name": "Webhooks",
-        "description": "Receive events from GitHub, GitLab, and other webhook sources.",
-        "docs_url": "https://hermes-agent.nousresearch.com/docs/user-guide/messaging/webhooks/",
-        "env_vars": ("WEBHOOK_ENABLED", "WEBHOOK_PORT", "WEBHOOK_SECRET"),
-        "required_env": (),
-    },
 }
+
 
 # Display order: well-known platforms surface first; unknown plugins fall to
 # the end alphabetically.
-_PLATFORM_ORDER: tuple[str, ...] = (
-    "telegram",
-    "discord",
-    "slack",
-    "mattermost",
-    "matrix",
-    "whatsapp",
-    "signal",
-    "bluebubbles",
-    "homeassistant",
-    "email",
-    "sms",
-    "dingtalk",
-    "feishu",
-    "google_chat",
-    "wecom",
-    "wecom_callback",
-    "weixin",
-    "qqbot",
-    "yuanbao",
-    "api_server",
-    "webhook",
-)
+_PLATFORM_ORDER: tuple[str, ...] = ("feishu", "api_server")
+
 
 # Display labels for env vars not in OPTIONAL_ENV_VARS (HOME_CHANNEL_*, bridge
 # toggles, Twilio, HASS, Email, etc.). Anything missing from OPTIONAL_ENV_VARS
 # falls back here so the UI can still render a friendly label.
 _MESSAGING_ENV_FALLBACKS: dict[str, dict[str, Any]] = {
-    "SIGNAL_HTTP_URL": {
-        "description": "signal-cli REST API base URL, e.g. http://127.0.0.1:8080",
-        "prompt": "Signal bridge URL",
-        "url": "https://github.com/bbernhard/signal-cli-rest-api",
-    },
-    "SIGNAL_ACCOUNT": {
-        "description": "Signal account phone number registered with the bridge",
-        "prompt": "Signal account",
-    },
-    "SIGNAL_ALLOWED_USERS": {
-        "description": "Comma-separated Signal users allowed to use the bot",
-        "prompt": "Allowed Signal users",
-    },
-    "WHATSAPP_ENABLED": {
-        "description": "Enable the WhatsApp gateway adapter",
-        "prompt": "Enable WhatsApp",
-        "advanced": True,
-    },
-    "WHATSAPP_MODE": {
-        "description": "WhatsApp bridge mode",
-        "prompt": "WhatsApp mode",
-        "advanced": True,
-    },
-    "WHATSAPP_DM_POLICY": {
-        "description": "How WhatsApp direct messages are authorized",
-        "prompt": "WhatsApp DM policy",
-        "advanced": True,
-    },
-    "WHATSAPP_ALLOWED_USERS": {
-        "description": "Comma-separated WhatsApp users allowed to use the bot",
-        "prompt": "Allowed WhatsApp users",
-    },
-    "HASS_URL": {
-        "description": "Home Assistant base URL, e.g. https://homeassistant.local:8123",
-        "prompt": "Home Assistant URL",
-    },
-    "HASS_TOKEN": {
-        "description": "Long-lived access token from Home Assistant (Profile → Security)",
-        "prompt": "Home Assistant access token",
-        "password": True,
-    },
-    "EMAIL_ADDRESS": {
-        "description": "Email address to send and receive from",
-        "prompt": "Email address",
-    },
-    "EMAIL_PASSWORD": {
-        "description": "Email account password or app password",
-        "prompt": "Email password",
-        "password": True,
-    },
-    "EMAIL_IMAP_HOST": {
-        "description": "IMAP server host (e.g. imap.gmail.com)",
-        "prompt": "IMAP host",
-    },
-    "EMAIL_SMTP_HOST": {
-        "description": "SMTP server host (e.g. smtp.gmail.com)",
-        "prompt": "SMTP host",
-    },
-    "TWILIO_ACCOUNT_SID": {
-        "description": "Twilio Account SID",
-        "prompt": "Twilio Account SID",
-        "url": "https://www.twilio.com/console",
-    },
-    "TWILIO_AUTH_TOKEN": {
-        "description": "Twilio Auth Token",
-        "prompt": "Twilio Auth Token",
-        "password": True,
-    },
-    "WECOM_BOT_ID": {"description": "WeCom group bot ID", "prompt": "WeCom Bot ID"},
-    "WECOM_SECRET": {
-        "description": "WeCom group bot secret",
-        "prompt": "WeCom Secret",
-        "password": True,
-    },
-    "WECOM_CALLBACK_CORP_ID": {
-        "description": "WeCom corp ID",
-        "prompt": "WeCom Corp ID",
-    },
-    "WECOM_CALLBACK_CORP_SECRET": {
-        "description": "WeCom app corp secret",
-        "prompt": "WeCom Corp Secret",
-        "password": True,
-    },
-    "WECOM_CALLBACK_AGENT_ID": {
-        "description": "WeCom app agent ID",
-        "prompt": "WeCom Agent ID",
-    },
-    "WECOM_CALLBACK_TOKEN": {
-        "description": "WeCom callback verification token",
-        "prompt": "WeCom Token",
-    },
-    "WECOM_CALLBACK_ENCODING_AES_KEY": {
-        "description": "WeCom callback AES encoding key",
-        "prompt": "WeCom AES Key",
-        "password": True,
-    },
-    "WEIXIN_ACCOUNT_ID": {
-        "description": "iLink Bot account ID obtained through QR login in hermes gateway setup",
-        "prompt": "iLink Bot account ID",
-    },
-    "WEIXIN_TOKEN": {
-        "description": "iLink Bot token obtained through QR login in hermes gateway setup",
-        "prompt": "iLink Bot token",
-        "password": True,
-    },
-    "WEIXIN_BASE_URL": {
-        "description": "iLink API base URL saved by QR login (default: https://ilinkai.weixin.qq.com)",
-        "prompt": "iLink API base URL",
-    },
     "FEISHU_APP_ID": {"description": "Feishu / Lark app ID", "prompt": "App ID"},
     "FEISHU_APP_SECRET": {
         "description": "Feishu / Lark app secret",
@@ -7665,16 +7331,8 @@ _MESSAGING_ENV_FALLBACKS: dict[str, dict[str, Any]] = {
         "prompt": "Verification token",
         "password": True,
     },
-    "DINGTALK_CLIENT_ID": {
-        "description": "DingTalk client ID (App key)",
-        "prompt": "Client ID",
-    },
-    "DINGTALK_CLIENT_SECRET": {
-        "description": "DingTalk client secret (App secret)",
-        "prompt": "Client secret",
-        "password": True,
-    },
 }
+
 
 
 def _messaging_platform_catalog() -> tuple[dict[str, Any], ...]:
@@ -7748,18 +7406,9 @@ _MESSAGING_KEYS_PAGE_KEYS = frozenset({
 
 
 def _platform_env_prefixes(platform_id: str) -> tuple[str, ...]:
-    """Env-var prefixes owned by a messaging platform card."""
-    aliases: dict[str, tuple[str, ...]] = {
-        "email": ("EMAIL_",),
-        "homeassistant": ("HASS_",),
-        "qqbot": ("QQ_", "QQBOT_"),
-        "sms": ("TWILIO_",),
-        "wecom": ("WECOM_BOT_", "WECOM_SECRET"),
-        "wecom_callback": ("WECOM_CALLBACK_",),
-    }
-    if platform_id in aliases:
-        return aliases[platform_id]
+    """Return the env-var prefix owned by a retained messaging surface."""
     return (platform_id.upper().replace("-", "_") + "_",)
+
 
 
 def _discover_platform_env_vars(platform_id: str) -> tuple[str, ...]:
@@ -7965,20 +7614,7 @@ def _messaging_platform_payload(
         error_message = error_message or runtime_gateway_error
 
     whatsapp_setup = None
-    if platform_id == "whatsapp":
-        whatsapp_mode = (
-            env_on_disk.get("WHATSAPP_MODE")
-            or ("" if scoped else os.getenv("WHATSAPP_MODE", ""))
-        ).strip()
-        allowed_users_value = (
-            env_on_disk.get("WHATSAPP_ALLOWED_USERS")
-            or ("" if scoped else os.getenv("WHATSAPP_ALLOWED_USERS", ""))
-        ).strip()
-        whatsapp_setup = {
-            "mode": whatsapp_mode if whatsapp_mode in {"bot", "self-chat"} else "",
-            "allowed_users_set": bool(allowed_users_value),
-            "home_channel_set": bool(home_channel),
-        }
+
 
     payload = {
         "id": platform_id,
@@ -7999,8 +7635,7 @@ def _messaging_platform_payload(
         "home_channel": home_channel,
         "env_vars": env_vars,
     }
-    if whatsapp_setup is not None:
-        payload["whatsapp_setup"] = whatsapp_setup
+
     return payload
 
 
@@ -8008,494 +7643,73 @@ def _write_platform_enabled(platform_id: str, enabled: bool) -> None:
     write_platform_config_field(platform_id, "enabled", enabled)
 
 
-_WHATSAPP_ONBOARDING_TTL_SECONDS = 600
-_WHATSAPP_ONBOARDING_TERMINAL_STATUSES = {"connected", "error", "expired", "cancelled"}
 
 
-@dataclass
-class _WhatsAppOnboardingSession:
-    proc: subprocess.Popen | None
-    mode: str
-    allowed_users: str
-    session_path: str
-    expires_at: str
-    expires_at_ts: float
-    profile: str | None = None
-    status: str = "starting"
-    qr_payload: str | None = None
-    account_id: str | None = None
-    account_name: str | None = None
-    account_phone: str | None = None
-    error: str | None = None
 
 
-_whatsapp_onboarding_sessions: dict[str, _WhatsAppOnboardingSession] = {}
-_whatsapp_onboarding_lock = threading.RLock()
+
+
+
+
+
 
 
 def _utc_iso_from_ts(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _normalize_whatsapp_onboarding_mode(value: Any) -> str:
-    mode = str(value or "bot").strip().lower()
-    if mode not in {"bot", "self-chat"}:
-        raise HTTPException(status_code=400, detail="WhatsApp mode must be 'bot' or 'self-chat'.")
-    return mode
 
 
-def _normalize_whatsapp_allowed_users(value: Any) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    return ",".join(part.replace(" ", "") for part in raw.split(",") if part.strip())
 
 
-def _whatsapp_session_path() -> Path:
-    from hermes_constants import get_hermes_dir
-
-    return get_hermes_dir("platforms/whatsapp/session", "whatsapp/session")
 
 
-def _whatsapp_phone_from_identifier(value: Any) -> str | None:
-    raw = str(value or "").strip()
-    if not raw:
-        return None
-    candidate = raw.split("@", 1)[0].split(":", 1)[0]
-    digits = re.sub(r"\D+", "", candidate)
-    return digits or None
 
 
-def _whatsapp_linked_account_from_session(session_path: Path) -> tuple[str | None, str | None, str | None]:
-    creds_path = session_path / "creds.json"
-    try:
-        payload = json.loads(creds_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None, None, None
-
-    account_id: str | None = None
-    account_name: str | None = None
-
-    def collect(candidate: Any) -> None:
-        nonlocal account_id, account_name
-        if not isinstance(candidate, dict):
-            return
-        if account_id is None:
-            for key in ("id", "jid", "lid"):
-                value = str(candidate.get(key) or "").strip()
-                if value:
-                    account_id = value
-                    break
-        if account_name is None:
-            for key in ("name", "verifiedName", "notify", "pushName"):
-                value = str(candidate.get(key) or "").strip()
-                if value:
-                    account_name = value
-                    break
-
-    collect(payload.get("me"))
-    collect(payload.get("account"))
-    collect(payload)
-    return account_id, account_name, _whatsapp_phone_from_identifier(account_id)
 
 
-def _ensure_whatsapp_bridge_dependencies(bridge_dir: Path) -> None:
-    """Install bridge dependencies when the dashboard is the setup surface."""
-    if (bridge_dir / "node_modules").exists():
-        return
-
-    from hermes_constants import find_node_executable, with_hermes_node_path
-    from utils import env_int
-
-    npm = find_node_executable("npm")
-    if not npm:
-        raise HTTPException(
-            status_code=500,
-            detail="npm was not found. WhatsApp setup needs Node.js and npm.",
-        )
-
-    timeout = env_int("WHATSAPP_NPM_INSTALL_TIMEOUT", 300)
-    try:
-        result = subprocess.run(
-            [npm, "install", "--silent"],
-            cwd=str(bridge_dir),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=with_hermes_node_path(),
-            creationflags=windows_hide_flags(),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise HTTPException(
-            status_code=500,
-            detail="Installing WhatsApp bridge dependencies timed out.",
-        ) from exc
-    except OSError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to install WhatsApp bridge dependencies: {exc}",
-        ) from exc
-
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        if detail:
-            detail = "\n".join(detail.splitlines()[-10:])
-        raise HTTPException(
-            status_code=500,
-            detail=f"npm install failed for WhatsApp bridge: {detail or 'no output'}",
-        )
 
 
-def _spawn_whatsapp_pairing_process(session_path: Path, mode: str) -> subprocess.Popen:
-    from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
-    from hermes_constants import find_node_executable, with_hermes_node_path
-
-    bridge_dir = resolve_whatsapp_bridge_dir()
-    bridge_script = bridge_dir / "bridge.js"
-    if not bridge_script.exists():
-        raise HTTPException(
-            status_code=500,
-            detail=f"WhatsApp bridge script was not found at {bridge_script}.",
-        )
-    node = find_node_executable("node")
-    if not node:
-        raise HTTPException(
-            status_code=500,
-            detail="Node.js was not found. WhatsApp setup needs Node.js.",
-        )
-
-    _ensure_whatsapp_bridge_dependencies(bridge_dir)
-    session_path.mkdir(parents=True, exist_ok=True)
-
-    env = with_hermes_node_path()
-    env["WHATSAPP_MODE"] = mode
-    env["WHATSAPP_DM_POLICY"] = "pairing"
-    return subprocess.Popen(
-        [
-            node,
-            str(bridge_script),
-            "--pair-only",
-            "--pair-json",
-            "--session",
-            str(session_path),
-        ],
-        cwd=str(bridge_dir),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        start_new_session=True,
-        env=env,
-        creationflags=windows_hide_flags(),
-    )
 
 
-def _terminate_whatsapp_pairing(proc: subprocess.Popen | None) -> None:
-    if proc is None:
-        return
-    if proc.poll() is not None:
-        return
-    try:
-        proc.terminate()
-        proc.wait(timeout=3)
-    except Exception:
-        try:
-            proc.kill()
-        except Exception:
-            pass
 
 
-def _watch_whatsapp_pairing(pairing_id: str, proc: subprocess.Popen) -> None:
-    try:
-        stream = proc.stdout
-        if stream is not None:
-            for line in stream:
-                raw = line.strip()
-                if not raw:
-                    continue
-                try:
-                    payload = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                event = str(payload.get("event") or "").strip()
-                with _whatsapp_onboarding_lock:
-                    record = _whatsapp_onboarding_sessions.get(pairing_id)
-                    if not record or record.proc is not proc:
-                        return
-                    if event == "qr":
-                        qr = str(payload.get("qr") or "").strip()
-                        if qr:
-                            record.qr_payload = qr
-                            record.status = "waiting"
-                            record.error = None
-                    elif event == "connected":
-                        user = payload.get("user")
-                        if isinstance(user, dict):
-                            account_id = str(user.get("id") or "").strip()
-                            account_name = str(user.get("name") or "").strip()
-                            record.account_id = account_id or None
-                            record.account_name = account_name or None
-                            record.account_phone = _whatsapp_phone_from_identifier(account_id)
-                        record.status = "connected"
-                        record.error = None
-                    elif event == "error":
-                        record.status = "error"
-                        record.error = str(payload.get("error") or "WhatsApp pairing failed.")
-                    elif event == "disconnected" and record.status == "starting":
-                        record.status = "waiting"
-        returncode = proc.wait()
-    except Exception as exc:
-        with _whatsapp_onboarding_lock:
-            record = _whatsapp_onboarding_sessions.get(pairing_id)
-            if record and record.proc is proc and record.status not in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES:
-                record.status = "error"
-                record.error = str(exc)
-        return
-
-    with _whatsapp_onboarding_lock:
-        record = _whatsapp_onboarding_sessions.get(pairing_id)
-        if not record or record.proc is not proc:
-            return
-        if record.status in {"connected", "cancelled", "expired"}:
-            return
-        record.status = "error"
-        record.error = (
-            "WhatsApp pairing process exited before pairing completed."
-            if returncode == 0
-            else f"WhatsApp pairing process exited with code {returncode}."
-        )
 
 
-def _run_whatsapp_pairing(pairing_id: str, session_path: Path, mode: str) -> None:
-    with _whatsapp_onboarding_lock:
-        record = _whatsapp_onboarding_sessions.get(pairing_id)
-        if not record or record.status in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES:
-            return
-        record.status = "installing"
-
-    try:
-        proc = _spawn_whatsapp_pairing_process(session_path, mode)
-    except Exception as exc:
-        with _whatsapp_onboarding_lock:
-            record = _whatsapp_onboarding_sessions.get(pairing_id)
-            if record and record.status not in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES:
-                record.status = "error"
-                record.error = str(exc)
-        return
-
-    with _whatsapp_onboarding_lock:
-        record = _whatsapp_onboarding_sessions.get(pairing_id)
-        if not record or record.status in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES:
-            _terminate_whatsapp_pairing(proc)
-            return
-        record.proc = proc
-        record.status = "starting"
-
-    _watch_whatsapp_pairing(pairing_id, proc)
 
 
-def _prune_whatsapp_onboarding_sessions() -> None:
-    now = time.time()
-    remove_ids: list[str] = []
-    for pairing_id, record in _whatsapp_onboarding_sessions.items():
-        if (
-            record.proc is not None
-            and record.status not in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES
-            and record.proc.poll() is not None
-        ):
-            record.status = "error"
-            record.error = "WhatsApp pairing process exited before pairing completed."
-        if record.expires_at_ts <= now and record.status not in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES:
-            _terminate_whatsapp_pairing(record.proc)
-            record.status = "expired"
-            record.error = "WhatsApp QR setup expired. Start a new setup."
-        if record.status in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES and record.expires_at_ts + 300 <= now:
-            remove_ids.append(pairing_id)
-    for pairing_id in remove_ids:
-        _whatsapp_onboarding_sessions.pop(pairing_id, None)
 
 
-def _supersede_whatsapp_onboarding_sessions(session_path: Path) -> None:
-    for existing in _whatsapp_onboarding_sessions.values():
-        if existing.session_path == str(session_path) and existing.status not in _WHATSAPP_ONBOARDING_TERMINAL_STATUSES:
-            existing.status = "cancelled"
-            existing.error = "Superseded by a newer WhatsApp setup session."
-            _terminate_whatsapp_pairing(existing.proc)
 
 
-def _whatsapp_onboarding_payload(pairing_id: str, record: _WhatsAppOnboardingSession) -> dict[str, Any]:
-    return {
-        "pairing_id": pairing_id,
-        "status": record.status,
-        "qr_payload": record.qr_payload,
-        "expires_at": record.expires_at,
-        "mode": record.mode,
-        "allowed_users": record.allowed_users,
-        "account_id": record.account_id,
-        "account_name": record.account_name,
-        "account_phone": record.account_phone,
-        "error": record.error,
-    }
 
 
-def _restart_gateway_after_whatsapp_onboarding(profile: Optional[str] = None) -> dict[str, Any]:
-    try:
-        proc, reused = _spawn_gateway_restart(profile)
-    except Exception as exc:
-        _log.exception("Failed to auto-restart gateway after WhatsApp onboarding")
-        return {
-            "restart_started": False,
-            "restart_error": str(exc),
-        }
-    if reused:
-        _log.info(
-            "WhatsApp onboarding: reusing in-flight gateway restart (pid %s)",
-            proc.pid,
-        )
-    return {
-        "restart_started": True,
-        "restart_action": "gateway-restart",
-        "restart_pid": proc.pid,
-    }
 
 
-@app.post("/api/messaging/whatsapp/onboarding/start")
-async def start_whatsapp_onboarding(body: WhatsAppOnboardingStart):
-    mode = _normalize_whatsapp_onboarding_mode(body.mode)
-    allowed_users = _normalize_whatsapp_allowed_users(body.allowed_users)
-    effective_profile = body.profile
-
-    with _config_profile_scope(effective_profile):
-        session_path = _whatsapp_session_path()
-        expires_at_ts = time.time() + _WHATSAPP_ONBOARDING_TTL_SECONDS
-        expires_at = _utc_iso_from_ts(expires_at_ts)
-        if (session_path / "creds.json").exists():
-            pairing_id = secrets.token_urlsafe(16)
-            account_id, account_name, account_phone = _whatsapp_linked_account_from_session(session_path)
-            record = _WhatsAppOnboardingSession(
-                proc=None,
-                mode=mode,
-                allowed_users=allowed_users,
-                session_path=str(session_path),
-                expires_at=expires_at,
-                expires_at_ts=expires_at_ts,
-                profile=effective_profile,
-                status="connected",
-                account_id=account_id,
-                account_name=account_name,
-                account_phone=account_phone,
-            )
-            with _whatsapp_onboarding_lock:
-                _prune_whatsapp_onboarding_sessions()
-                _supersede_whatsapp_onboarding_sessions(session_path)
-                _whatsapp_onboarding_sessions[pairing_id] = record
-            return _whatsapp_onboarding_payload(pairing_id, record)
-
-    pairing_id = secrets.token_urlsafe(16)
-    record = _WhatsAppOnboardingSession(
-        proc=None,
-        mode=mode,
-        allowed_users=allowed_users,
-        session_path=str(session_path),
-        expires_at=expires_at,
-        expires_at_ts=expires_at_ts,
-        profile=effective_profile,
-    )
-
-    with _whatsapp_onboarding_lock:
-        _prune_whatsapp_onboarding_sessions()
-        _supersede_whatsapp_onboarding_sessions(session_path)
-        _whatsapp_onboarding_sessions[pairing_id] = record
-
-    threading.Thread(
-        target=_run_whatsapp_pairing,
-        args=(pairing_id, session_path, mode),
-        daemon=True,
-    ).start()
-
-    return _whatsapp_onboarding_payload(pairing_id, record)
 
 
-@app.get("/api/messaging/whatsapp/onboarding/{pairing_id}")
-async def get_whatsapp_onboarding_status(pairing_id: str):
-    with _whatsapp_onboarding_lock:
-        _prune_whatsapp_onboarding_sessions()
-        record = _whatsapp_onboarding_sessions.get(pairing_id)
-        if not record:
-            raise HTTPException(
-                status_code=404,
-                detail="WhatsApp setup session was not found. Start a new setup.",
-            )
-        if record.status == "expired":
-            raise HTTPException(status_code=410, detail=record.error or "WhatsApp setup expired.")
-        return _whatsapp_onboarding_payload(pairing_id, record)
 
 
-@app.post("/api/messaging/whatsapp/onboarding/{pairing_id}/apply")
-async def apply_whatsapp_onboarding(
-    pairing_id: str, body: WhatsAppOnboardingApply, profile: Optional[str] = None
-):
-    with _whatsapp_onboarding_lock:
-        _prune_whatsapp_onboarding_sessions()
-        record = _whatsapp_onboarding_sessions.get(pairing_id)
-        if not record:
-            raise HTTPException(
-                status_code=404,
-                detail="WhatsApp setup session was not found. Start a new setup.",
-            )
-        if record.status != "connected":
-            raise HTTPException(status_code=409, detail="WhatsApp setup is not connected yet.")
-        mode = _normalize_whatsapp_onboarding_mode(body.mode or record.mode)
-        allowed_users = _normalize_whatsapp_allowed_users(
-            record.allowed_users if body.allowed_users is None else body.allowed_users
-        )
-        if mode == "self-chat" and not allowed_users:
-            allowed_users = record.account_phone or record.account_id or ""
-        record_profile = record.profile
-
-    effective_profile = body.profile or profile or record_profile
-    try:
-        with _config_profile_scope(effective_profile):
-            save_env_value("WHATSAPP_MODE", mode)
-            save_env_value("WHATSAPP_DM_POLICY", "pairing")
-            if allowed_users:
-                save_env_value("WHATSAPP_ALLOWED_USERS", allowed_users)
-            # Blank means "keep the existing allowlist"; explicit clearing
-            # still lives in the normal config editor where the field is visible.
-            save_env_value("WHATSAPP_ENABLED", "true")
-            _write_platform_enabled("whatsapp", True)
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        _log.exception("WhatsApp onboarding apply failed")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to save WhatsApp setup.",
-        ) from exc
-
-    with _whatsapp_onboarding_lock:
-        _whatsapp_onboarding_sessions.pop(pairing_id, None)
-
-    restart_result = _restart_gateway_after_whatsapp_onboarding(effective_profile)
-    return {
-        "ok": True,
-        "platform": "whatsapp",
-        "needs_restart": not restart_result["restart_started"],
-        **restart_result,
-    }
 
 
-@app.delete("/api/messaging/whatsapp/onboarding/{pairing_id}")
-async def cancel_whatsapp_onboarding(pairing_id: str):
-    with _whatsapp_onboarding_lock:
-        record = _whatsapp_onboarding_sessions.pop(pairing_id, None)
-    if record:
-        record.status = "cancelled"
-        _terminate_whatsapp_pairing(record.proc)
-    return {"ok": True}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 _TELEGRAM_ONBOARDING_DEFAULT_URL = "https://setup.hermes-agent.nousresearch.com"
@@ -8514,12 +7728,7 @@ _telegram_onboarding_pairings: dict[str, _TelegramOnboardingPairing] = {}
 _telegram_onboarding_lock = threading.RLock()
 
 
-def _telegram_onboarding_base_url() -> str:
-    return (
-        os.getenv("TELEGRAM_ONBOARDING_URL", _TELEGRAM_ONBOARDING_DEFAULT_URL)
-        .strip()
-        .rstrip("/")
-    )
+
 
 
 def _parse_expiry_ts(value: str) -> float:
@@ -8533,15 +7742,7 @@ def _parse_expiry_ts(value: str) -> float:
         return time.time() + 600
 
 
-def _prune_telegram_onboarding_pairings() -> None:
-    now = time.time()
-    expired = [
-        pairing_id
-        for pairing_id, record in _telegram_onboarding_pairings.items()
-        if record.expires_at_ts <= now
-    ]
-    for pairing_id in expired:
-        _telegram_onboarding_pairings.pop(pairing_id, None)
+
 
 
 def _normalize_telegram_user_id(value: Any) -> str | None:
@@ -8551,317 +7752,28 @@ def _normalize_telegram_user_id(value: Any) -> str | None:
     return None
 
 
-def _telegram_onboarding_error_message(error: str, fallback: str) -> str:
-    return {
-        "not_found": "Telegram pairing was not found. Start a new setup.",
-        "expired": "Telegram setup expired. Start a new setup.",
-        "claimed": "Telegram setup was already claimed. Start a new setup.",
-        "unauthorized": "Telegram setup service rejected this request.",
-        "telegram_manager_bot_token_not_configured": "Telegram setup service is not configured.",
-        "telegram_token_fetch_failed": "Telegram could not finish bot setup. Try again.",
-    }.get(error, fallback)
 
 
-def _telegram_onboarding_request_sync(
-    method: str,
-    path: str,
-    *,
-    body: dict[str, Any] | None = None,
-    bearer_token: str | None = None,
-) -> dict[str, Any]:
-    import httpx
-
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": _TELEGRAM_ONBOARDING_USER_AGENT,
-    }
-    request_kwargs: dict[str, Any] = {}
-    if body is not None:
-        headers["Content-Type"] = "application/json"
-        request_kwargs["json"] = body
-    if bearer_token:
-        headers["Authorization"] = f"Bearer {bearer_token}"
-
-    url = f"{_telegram_onboarding_base_url()}{path}"
-    try:
-        with httpx.Client(timeout=httpx.Timeout(10.0)) as client:
-            response = client.request(
-                method,
-                url,
-                headers=headers,
-                **request_kwargs,
-            )
-            response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        try:
-            parsed = exc.response.json()
-        except Exception:
-            parsed = {}
-        error = str(parsed.get("error") or parsed.get("status") or "")
-        detail = _telegram_onboarding_error_message(
-            error,
-            "Telegram setup service returned an error.",
-        )
-        status_code = 404 if exc.response.status_code == 404 else 502
-        if error in {"expired", "claimed"}:
-            status_code = 410
-        raise HTTPException(status_code=status_code, detail=detail) from exc
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Telegram setup service is unavailable. Try again shortly.",
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Telegram setup service is unavailable. Try again shortly.",
-        ) from exc
-
-    try:
-        parsed = response.json()
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="Telegram setup service returned an invalid response.",
-        ) from exc
-    if not isinstance(parsed, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="Telegram setup service returned an invalid response.",
-        )
-    return parsed
 
 
-async def _telegram_onboarding_request(
-    method: str,
-    path: str,
-    *,
-    body: dict[str, Any] | None = None,
-    bearer_token: str | None = None,
-) -> dict[str, Any]:
-    return await asyncio.to_thread(
-        _telegram_onboarding_request_sync,
-        method,
-        path,
-        body=body,
-        bearer_token=bearer_token,
-    )
 
 
-@app.post("/api/messaging/telegram/onboarding/start")
-async def start_telegram_onboarding(body: TelegramOnboardingStart):
-    bot_name = (body.bot_name or "Hermes Agent").strip() or "Hermes Agent"
-    payload = await _telegram_onboarding_request(
-        "POST",
-        "/v1/telegram/pairings",
-        body={"bot_name": bot_name},
-    )
-
-    pairing_id = str(payload.get("pairing_id") or "").strip()
-    poll_token = str(payload.get("poll_token") or "").strip()
-    expires_at = str(payload.get("expires_at") or "").strip()
-    deep_link = str(payload.get("deep_link") or "").strip()
-    qr_payload = str(payload.get("qr_payload") or deep_link).strip()
-    suggested_username = str(payload.get("suggested_username") or "").strip()
-    if not pairing_id or not poll_token or not expires_at or not deep_link:
-        raise HTTPException(
-            status_code=502,
-            detail="Telegram setup service returned an incomplete response.",
-        )
-
-    with _telegram_onboarding_lock:
-        _prune_telegram_onboarding_pairings()
-        _telegram_onboarding_pairings[pairing_id] = _TelegramOnboardingPairing(
-            poll_token=poll_token,
-            expires_at=expires_at,
-            expires_at_ts=_parse_expiry_ts(expires_at),
-        )
-
-    return {
-        "pairing_id": pairing_id,
-        "suggested_username": suggested_username,
-        "deep_link": deep_link,
-        "qr_payload": qr_payload,
-        "expires_at": expires_at,
-    }
 
 
-@app.get("/api/messaging/telegram/onboarding/{pairing_id}")
-async def get_telegram_onboarding_status(pairing_id: str):
-    with _telegram_onboarding_lock:
-        _prune_telegram_onboarding_pairings()
-        record = _telegram_onboarding_pairings.get(pairing_id)
-        if not record:
-            raise HTTPException(
-                status_code=404,
-                detail="Telegram setup session was not found. Start a new setup.",
-            )
-        if record.bot_token:
-            return {
-                "status": "ready",
-                "bot_username": record.bot_username,
-                "owner_user_id": record.owner_user_id,
-                "expires_at": record.expires_at,
-            }
-        poll_token = record.poll_token
-
-    payload = await _telegram_onboarding_request(
-        "GET",
-        f"/v1/telegram/pairings/{urllib.parse.quote(pairing_id, safe='')}",
-        bearer_token=poll_token,
-    )
-    status = str(payload.get("status") or "").strip()
-    if status == "waiting":
-        with _telegram_onboarding_lock:
-            current = _telegram_onboarding_pairings.get(pairing_id)
-            expires_at = current.expires_at if current else ""
-        return {"status": "waiting", "expires_at": expires_at}
-
-    if status == "ready":
-        bot_token = str(payload.get("token") or "").strip()
-        bot_username = str(payload.get("bot_username") or "").strip()
-        if not bot_token:
-            raise HTTPException(
-                status_code=502,
-                detail="Telegram setup service returned an incomplete response.",
-            )
-        owner_user_id = _normalize_telegram_user_id(payload.get("owner_user_id"))
-        with _telegram_onboarding_lock:
-            record = _telegram_onboarding_pairings.get(pairing_id)
-            if not record:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Telegram setup session was not found. Start a new setup.",
-                )
-            record.bot_token = bot_token
-            record.bot_username = bot_username or None
-            record.owner_user_id = owner_user_id
-            return {
-                "status": "ready",
-                "bot_username": record.bot_username,
-                "owner_user_id": record.owner_user_id,
-                "expires_at": record.expires_at,
-            }
-
-    if status in {"expired", "claimed"}:
-        with _telegram_onboarding_lock:
-            _telegram_onboarding_pairings.pop(pairing_id, None)
-        raise HTTPException(
-            status_code=410,
-            detail=_telegram_onboarding_error_message(
-                status,
-                "Telegram setup is no longer available. Start a new setup.",
-            ),
-        )
-
-    raise HTTPException(
-        status_code=502,
-        detail="Telegram setup service returned an unknown status.",
-    )
 
 
-def _restart_gateway_after_telegram_onboarding(profile: Optional[str] = None) -> dict[str, Any]:
-    """Best-effort gateway restart after saving Telegram QR onboarding.
-
-    The QR flow naturally pulls users into Telegram on another device. If the
-    saved token waits on a separate dashboard restart click, Hermes appears
-    broken from the chat side. Keep the config save authoritative, but report
-    restart failures so the UI can fall back to the existing manual banner.
-    """
-    try:
-        proc, reused = _spawn_gateway_restart(profile)
-    except Exception as exc:
-        _log.exception("Failed to auto-restart gateway after Telegram onboarding")
-        return {
-            "restart_started": False,
-            "restart_error": str(exc),
-        }
-    if reused:
-        _log.info(
-            "Telegram onboarding: reusing in-flight gateway restart (pid %s)",
-            proc.pid,
-        )
-    return {
-        "restart_started": True,
-        "restart_action": "gateway-restart",
-        "restart_pid": proc.pid,
-    }
 
 
-@app.post("/api/messaging/telegram/onboarding/{pairing_id}/apply")
-async def apply_telegram_onboarding(
-    pairing_id: str, body: TelegramOnboardingApply, profile: Optional[str] = None
-):
-    allowed_user_ids = []
-    seen = set()
-    for raw_id in body.allowed_user_ids:
-        normalized = _normalize_telegram_user_id(raw_id)
-        if not normalized:
-            raise HTTPException(
-                status_code=400,
-                detail="Allowed Telegram user IDs must be numeric.",
-            )
-        if normalized not in seen:
-            seen.add(normalized)
-            allowed_user_ids.append(normalized)
-    if not allowed_user_ids:
-        raise HTTPException(
-            status_code=400,
-            detail="Add at least one allowed Telegram user ID.",
-        )
-
-    with _telegram_onboarding_lock:
-        _prune_telegram_onboarding_pairings()
-        record = _telegram_onboarding_pairings.get(pairing_id)
-        if not record:
-            raise HTTPException(
-                status_code=404,
-                detail="Telegram setup session was not found. Start a new setup.",
-            )
-        bot_token = record.bot_token
-        bot_username = record.bot_username
-        if not bot_token:
-            raise HTTPException(
-                status_code=409,
-                detail="Telegram setup is not ready yet.",
-            )
-
-    effective_profile = body.profile or profile
-    try:
-        with _profile_scope(effective_profile):
-            save_env_value("TELEGRAM_BOT_TOKEN", bot_token)
-            save_env_value("TELEGRAM_ALLOWED_USERS", ",".join(allowed_user_ids))
-            _write_platform_enabled("telegram", True)
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        _log.exception("Telegram onboarding apply failed")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to save Telegram setup.",
-        ) from exc
-
-    with _telegram_onboarding_lock:
-        _telegram_onboarding_pairings.pop(pairing_id, None)
-
-    restart_result = _restart_gateway_after_telegram_onboarding(effective_profile)
-
-    return {
-        "ok": True,
-        "platform": "telegram",
-        "bot_username": bot_username,
-        "needs_restart": not restart_result["restart_started"],
-        **restart_result,
-    }
 
 
-@app.delete("/api/messaging/telegram/onboarding/{pairing_id}")
-async def cancel_telegram_onboarding(pairing_id: str):
-    with _telegram_onboarding_lock:
-        _telegram_onboarding_pairings.pop(pairing_id, None)
-    return {"ok": True}
+
+
+
+
+
+
+
+
 
 
 @app.get("/api/messaging/platforms")
@@ -12651,176 +11563,6 @@ async def clear_pending_pairing():
 
 
 # ---------------------------------------------------------------------------
-# Webhook subscription endpoints — list / subscribe / remove.
-#
-# Wraps the same JSON store the CLI uses (hermes_cli.webhook); the webhook
-# adapter hot-reloads it without a gateway restart.  Per-route HMAC secrets
-# are redacted on read and surfaced once on create.
-# ---------------------------------------------------------------------------
-
-
-class WebhookCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    events: List[str] = []
-    prompt: Optional[str] = None
-    script: Optional[str] = None
-    skills: List[str] = []
-    deliver: str = "log"
-    deliver_only: bool = False
-    deliver_chat_id: Optional[str] = None
-    # secret: omit to auto-generate
-    secret: Optional[str] = None
-
-
-def _webhook_route_summary(name: str, route: Dict[str, Any], base_url: str) -> Dict[str, Any]:
-    return {
-        "name": name,
-        "description": route.get("description", ""),
-        "events": list(route.get("events") or []),
-        "deliver": route.get("deliver", "log"),
-        "deliver_only": bool(route.get("deliver_only")),
-        "prompt": route.get("prompt", ""),
-        "script": route.get("script", ""),
-        "skills": list(route.get("skills") or []),
-        "created_at": route.get("created_at"),
-        "url": f"{base_url}/webhooks/{name}",
-        # Secret is masked on read; full value only returned on create.
-        "secret_set": bool(route.get("secret")),
-        # Default-enabled; only an explicit enabled:false turns a route off.
-        "enabled": route.get("enabled", True) is not False,
-    }
-
-
-@app.get("/api/webhooks")
-async def list_webhooks():
-    import hermes_cli.webhook as wh
-
-    base_url = wh._get_webhook_base_url()
-    subs = wh._load_subscriptions()
-    return {
-        "enabled": wh._is_webhook_enabled(),
-        "base_url": base_url,
-        "subscriptions": [
-            _webhook_route_summary(name, route, base_url)
-            for name, route in subs.items()
-        ],
-    }
-
-
-@app.post("/api/webhooks/enable")
-async def enable_webhooks():
-    try:
-        _write_platform_enabled("webhook", True)
-    except Exception as exc:
-        _log.exception("Failed to enable webhook platform from dashboard")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to enable webhook platform.",
-        ) from exc
-
-    restart_result = _restart_gateway_after_webhook_enable()
-    return {
-        "ok": True,
-        "platform": "webhook",
-        "enabled": True,
-        "needs_restart": not restart_result["restart_started"],
-        **restart_result,
-    }
-
-
-@app.post("/api/webhooks")
-async def create_webhook(body: WebhookCreate):
-    import re as _re
-    import secrets as _secrets
-    import time as _time
-    import hermes_cli.webhook as wh
-
-    if not wh._is_webhook_enabled():
-        raise HTTPException(
-            status_code=400,
-            detail="Webhook platform is not enabled. Enable it from the Webhooks page first.",
-        )
-
-    name = (body.name or "").strip().lower().replace(" ", "-")
-    if not _re.match(r"^[a-z0-9][a-z0-9_-]*$", name):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid name. Use lowercase alphanumeric with hyphens/underscores.",
-        )
-
-    if body.deliver_only and body.deliver == "log":
-        raise HTTPException(
-            status_code=400,
-            detail="Direct delivery requires a real target (telegram, discord, …), not 'log'.",
-        )
-
-    secret = body.secret or _secrets.token_urlsafe(32)
-    route: Dict[str, Any] = {
-        "description": body.description or f"Dashboard-created subscription: {name}",
-        "events": [e.strip() for e in body.events if e.strip()],
-        "secret": secret,
-        "prompt": body.prompt or "",
-        "skills": [s.strip() for s in body.skills if s.strip()],
-        "deliver": body.deliver or "log",
-        "created_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
-    }
-    if body.script and body.script.strip():
-        route["script"] = body.script.strip()
-    if body.deliver_only:
-        route["deliver_only"] = True
-    if body.deliver_chat_id:
-        route["deliver_extra"] = {"chat_id": body.deliver_chat_id}
-
-    subs = wh._load_subscriptions()
-    subs[name] = route
-    wh._save_subscriptions(subs)
-
-    base_url = wh._get_webhook_base_url()
-    summary = _webhook_route_summary(name, route, base_url)
-    # Surface the secret exactly once, on create.
-    summary["secret"] = secret
-    return summary
-
-
-@app.delete("/api/webhooks/{name}")
-async def delete_webhook(name: str):
-    import hermes_cli.webhook as wh
-
-    key = (name or "").strip().lower()
-    subs = wh._load_subscriptions()
-    if key not in subs:
-        raise HTTPException(status_code=404, detail=f"No subscription named '{key}'")
-    del subs[key]
-    wh._save_subscriptions(subs)
-    return {"ok": True}
-
-
-class WebhookEnabledToggle(BaseModel):
-    enabled: bool
-
-
-@app.put("/api/webhooks/{name}/enabled")
-async def set_webhook_enabled(name: str, body: WebhookEnabledToggle):
-    """Enable or disable a webhook route.
-
-    Disabled routes stay in the subscriptions file (so they can be
-    re-enabled) but the gateway rejects incoming events with 403.  The
-    gateway hot-reloads the subscriptions file, so this takes effect on the
-    next event without a restart.
-    """
-    import hermes_cli.webhook as wh
-
-    key = (name or "").strip().lower()
-    subs = wh._load_subscriptions()
-    if key not in subs:
-        raise HTTPException(status_code=404, detail=f"No subscription named '{key}'")
-    subs[key]["enabled"] = bool(body.enabled)
-    wh._save_subscriptions(subs)
-    return {"ok": True, "name": key, "enabled": bool(body.enabled)}
-
-
-# ---------------------------------------------------------------------------
 # Gateway lifecycle endpoints — start / stop.
 #
 # restart + update already exist above; these complete the lifecycle so a
@@ -15042,40 +13784,31 @@ class ToolsetProviderSelect(BaseModel):
 
 # Toolsets whose backends carry a selectable model catalog, mapped to the
 # config.yaml section their `model` key lives in. Mirrors the CLI's
-# post-selection model pickers (`_configure_imagegen_model_for_plugin` /
-# `_configure_videogen_model_for_plugin` in tools_config.py).
+# post-selection image generation model picker.
 _MODEL_CATALOG_TOOLSETS = {
     "image_gen": "image_gen",
-    "video_gen": "video_gen",
 }
 
 
 def _resolve_toolset_model_plugin(ts_key: str, provider_row: dict) -> Optional[str]:
-    """Map a provider picker row to its model-catalog plugin name.
+    """Map an image-generation provider picker row to its model catalog plugin.
 
-    Plugin-backed rows carry ``image_gen_plugin_name`` / ``video_gen_plugin_name``;
-    the managed "Nous Subscription" image row instead carries the legacy
-    ``imagegen_backend: "fal"`` marker (same underlying FAL catalog).
+    Plugin-backed rows carry ``image_gen_plugin_name``; the managed Nous
+    Subscription image row carries the legacy ``imagegen_backend: "fal"``
+    marker for the same underlying FAL catalog.
     """
     if ts_key == "image_gen":
         return provider_row.get("image_gen_plugin_name") or (
             "fal" if provider_row.get("imagegen_backend") else None
         )
-    if ts_key == "video_gen":
-        return provider_row.get("video_gen_plugin_name")
     return None
 
 
 def _toolset_model_catalog(ts_key: str, plugin_name: str):
-    """Return ``(catalog_dict, default_model)`` for a toolset's plugin backend."""
-    from hermes_cli.tools_config import (
-        _plugin_image_gen_catalog,
-        _plugin_video_gen_catalog,
-    )
+    """Return the image-generation model catalog for a plugin backend."""
+    from hermes_cli.tools_config import _plugin_image_gen_catalog
 
-    if ts_key == "image_gen":
-        return _plugin_image_gen_catalog(plugin_name)
-    return _plugin_video_gen_catalog(plugin_name)
+    return _plugin_image_gen_catalog(plugin_name)
 
 
 def _find_toolset_provider_row(ts_key: str, config: dict, provider: Optional[str]) -> Optional[dict]:
@@ -15101,13 +13834,10 @@ def _find_toolset_provider_row(ts_key: str, config: dict, provider: Optional[str
 async def get_toolset_models(
     name: str, provider: Optional[str] = None, profile: Optional[str] = None
 ):
-    """Return the model catalog for a toolset backend (image/video gen).
+    """Return the model catalog for an image-generation backend.
 
-    The GUI counterpart of the model picker `hermes tools` runs after a
-    backend is selected — e.g. FAL's multi-model catalog (speed / strengths /
-    price per model). ``provider`` names a picker row; omitted, the currently
-    active provider is used. Toolsets without model catalogs return
-    ``has_models: false``.
+    ``provider`` names a picker row; omitted, the currently active provider is
+    used. Toolsets without model catalogs return ``has_models: false``.
     """
     section = _MODEL_CATALOG_TOOLSETS.get(name)
     if section is None:
@@ -15167,7 +13897,7 @@ class ToolsetModelSelect(BaseModel):
 async def select_toolset_model(
     name: str, body: ToolsetModelSelect, profile: Optional[str] = None
 ):
-    """Persist a backend model selection (``image_gen.model`` / ``video_gen.model``).
+    """Persist an image-generation backend model selection.
 
     Validates the model against the resolved backend's catalog — the same
     write the CLI's post-selection model picker performs. Returns 400 for

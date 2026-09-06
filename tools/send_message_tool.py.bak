@@ -1,4 +1,9 @@
-"""Feishu message delivery shared by CLI, cron, gateway, and MCP."""
+"""Send Message Tool -- cross-channel messaging via platform APIs.
+
+Sends a message to a user or channel on any connected messaging platform
+(Telegram, Discord, Slack). Supports listing available targets and resolving
+human-friendly channel names to IDs. Works in both CLI and gateway contexts.
+"""
 
 import asyncio
 import json
@@ -69,7 +74,7 @@ SEND_MESSAGE_SCHEMA = {
 
 
 def send_message_tool(args, **kw):
-    """Handle Feishu send_message calls."""
+    """Handle cross-channel send_message tool calls."""
     action = args.get("action", "send")
 
     if action == "list":
@@ -82,7 +87,7 @@ def send_message_tool(args, **kw):
 
 
 def _handle_list():
-    """Return the available Feishu targets."""
+    """Return formatted list of available messaging targets."""
     try:
         from gateway.channel_directory import format_directory_for_display
         return json.dumps({"targets": format_directory_for_display()})
@@ -91,7 +96,7 @@ def _handle_list():
 
 
 def _handle_send(args):
-    """Send a message to a Feishu target."""
+    """Send a message to a platform target."""
     target = args.get("target", "")
     message = args.get("message", "")
     if not target or not message:
@@ -335,7 +340,71 @@ async def _send_to_platform(
         )
     }
 
+
+
+
+
+
+# _send_slack moved to the slack plugin as _standalone_send
+# (plugins/platforms/slack/adapter.py), wired via standalone_sender_fn. #41112.
+
+
+
+
+# _send_whatsapp moved to plugins/platforms/whatsapp/adapter.py::_standalone_send,
+# wired via standalone_sender_fn and reached through _registry_standalone_send. #41112.
+
+
+
+
+# _send_email moved to plugins/platforms/email/adapter.py::_standalone_send;
+# _send_sms moved to plugins/platforms/sms/adapter.py::_standalone_send. Both
+# wired via standalone_sender_fn, reached through _registry_standalone_send. #41112.
+
+
+# _send_matrix moved to plugins/platforms/matrix/adapter.py::_standalone_send,
+# wired via standalone_sender_fn and reached through _registry_standalone_send. #41112.
+# (_send_matrix_via_adapter below stays — it's the native-media upload path.)
+
+
+
+
+
+
+# _send_dingtalk moved to plugins/platforms/dingtalk/adapter.py::_standalone_send,
+# wired via standalone_sender_fn and reached through _registry_standalone_send. #41112.
+
+
+# _send_wecom moved to plugins/platforms/wecom/adapter.py::_standalone_send,
+# wired via standalone_sender_fn and reached through _registry_standalone_send. #41112.
+
+
+
+
+
+
+# _send_feishu moved to plugins/platforms/feishu/adapter.py::_standalone_send,
+# wired via standalone_sender_fn and reached through _registry_standalone_send
+# (and the feishu media branch above). #41112.
+
+
+
+
+
+
+
+
 # --- Registry ---
 from tools.registry import tool_error
 
-# The Feishu transport is shared by cron, the CLI, gateway kanban, and MCP.
+# NOTE: ``send_message`` is intentionally NOT registered as an agent-callable
+# model tool. The agent should not decide on its own to fire off cross-platform
+# messages or reactions. The send engine in this module (``_send_to_platform``,
+# ``_send_via_adapter``, ``_parse_target_ref``, the per-platform ``_send_*``
+# helpers) remains the shared transport used by:
+#   - cron delivery (cron/scheduler.py)
+#   - the ``hermes send`` CLI command (hermes_cli/send_cmd.py)
+#   - the gateway kanban notifier (dashboard-toggled, outside agent control)
+#   - the standalone MCP server (mcp_serve.py), which is an opt-in surface
+# Those callers import the helpers directly; none of them need the registry
+# entry.

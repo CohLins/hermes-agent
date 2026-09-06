@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from gateway.config import Platform
 from gateway.platforms.base import (
     BasePlatformAdapter,
     GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE,
@@ -1509,42 +1510,24 @@ class TestMediaDeliveryDefaultMode:
 # ---------------------------------------------------------------------------
 
 class TestShouldSendMediaAsAudio:
-    """Audio-routing policy shared by gateway + scheduler + send_message."""
+    """Audio-routing policy shared by gateway, scheduler, and send_message."""
 
     def test_unknown_extension_returns_false(self):
         from gateway.platforms.base import should_send_media_as_audio
-        assert should_send_media_as_audio(None, ".png") is False
-        assert should_send_media_as_audio("telegram", ".pdf") is False
 
-    def test_non_telegram_platforms_route_all_audio(self):
+        assert should_send_media_as_audio(Platform.FEISHU, ".png") is False
+
+    def test_feishu_routes_all_supported_audio_extensions(self):
         from gateway.platforms.base import should_send_media_as_audio
+
         for ext in (".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus"):
-            assert should_send_media_as_audio("discord", ext) is True
-            assert should_send_media_as_audio("slack", ext) is True
-
-    def test_telegram_mp3_and_m4a_route_to_audio(self):
-        from gateway.platforms.base import should_send_media_as_audio
-        assert should_send_media_as_audio("telegram", ".mp3") is True
-        assert should_send_media_as_audio("telegram", ".m4a") is True
-
-    def test_telegram_wav_and_flac_fall_through_to_document(self):
-        from gateway.platforms.base import should_send_media_as_audio
-        assert should_send_media_as_audio("telegram", ".wav") is False
-        assert should_send_media_as_audio("telegram", ".flac") is False
-
-    def test_telegram_ogg_opus_only_when_voice_flagged(self):
-        from gateway.platforms.base import should_send_media_as_audio
-        assert should_send_media_as_audio("telegram", ".ogg", is_voice=True) is True
-        assert should_send_media_as_audio("telegram", ".opus", is_voice=True) is True
-        assert should_send_media_as_audio("telegram", ".ogg") is False
-        assert should_send_media_as_audio("telegram", ".opus") is False
+            assert should_send_media_as_audio(Platform.FEISHU, ext) is True
 
     def test_accepts_platform_enum(self):
-        from gateway.config import Platform
         from gateway.platforms.base import should_send_media_as_audio
-        assert should_send_media_as_audio(Platform.TELEGRAM, ".mp3") is True
-        assert should_send_media_as_audio(Platform.TELEGRAM, ".flac") is False
-        assert should_send_media_as_audio(Platform.DISCORD, ".flac") is True
+
+        assert should_send_media_as_audio(Platform.FEISHU, ".mp3") is True
+        assert should_send_media_as_audio(Platform.FEISHU, ".flac") is True
 
 
 # ---------------------------------------------------------------------------
@@ -1572,7 +1555,7 @@ class TestTruncateMessage:
         from gateway.config import Platform, PlatformConfig
 
         config = PlatformConfig(enabled=True, token="test")
-        return StubAdapter(config=config, platform=Platform.TELEGRAM)
+        return StubAdapter(config=config, platform=Platform.FEISHU)
 
     def test_short_message_single_chunk(self):
         adapter = self._adapter()
@@ -2010,7 +1993,7 @@ class _CapturingAdapter(BasePlatformAdapter):
 
     def __init__(self):
         from gateway.config import Platform, PlatformConfig
-        super().__init__(PlatformConfig(enabled=True), Platform.TELEGRAM)
+        super().__init__(PlatformConfig(enabled=True), Platform.FEISHU)
         self.sent: list[dict] = []
 
     async def connect(self) -> bool:  # pragma: no cover - not exercised

@@ -22,7 +22,7 @@ from gateway.session import SessionSource
 
 
 class ProgressCaptureAdapter(BasePlatformAdapter):
-    def __init__(self, platform=Platform.TELEGRAM):
+    def __init__(self, platform=Platform.FEISHU):
         super().__init__(PlatformConfig(enabled=True, token="***"), platform)
         self.sent = []
         self.edits = []
@@ -174,10 +174,10 @@ async def _run_once(monkeypatch, tmp_path, agent_cls, session_id):
         lambda: {"api_key": "fake"},
     )
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="-1001",
+        platform=Platform.FEISHU,
+        chat_id="oc_1001",
         chat_type="group",
-        thread_id="17585",
+        thread_id="topic_17585",
     )
     result = await runner._run_agent(
         message="hi",
@@ -185,7 +185,7 @@ async def _run_once(monkeypatch, tmp_path, agent_cls, session_id):
         history=[],
         source=source,
         session_id=session_id,
-        session_key="agent:main:telegram:group:-1001:17585",
+        session_key="agent:main:feishu:group:oc_1001:topic_17585",
     )
     return adapter, result
 

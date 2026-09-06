@@ -64,15 +64,48 @@ def _module_registers_tools(module_path: Path) -> bool:
     return any(_is_registry_register_call(stmt) for stmt in tree.body)
 
 
+_RUNTIME_TOOL_MODULES = (
+    "browser_cdp_tool",
+    "browser_dialog_tool",
+    "browser_tool",
+    "clarify_tool",
+    "close_terminal_tool",
+    "code_execution_tool",
+    "computer_use_tool",
+    "cronjob_tools",
+    "delegate_tool",
+    "feishu_doc_tool",
+    "feishu_drive_tool",
+    "file_tools",
+    "homeassistant_tool",
+    "image_generation_tool",
+    "kanban_tools",
+    "memory_tool",
+    "process_registry",
+    "read_terminal_tool",
+    "session_search_tool",
+    "skill_manager_tool",
+    "skills_tool",
+    "terminal_tool",
+    "todo_tool",
+    "tts_tool",
+    "vision_tools",
+    "web_tools",
+)
+
+
 def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:
-    """Import built-in self-registering tool modules and return their module names."""
-    tools_path = Path(tools_dir) if tools_dir is not None else Path(__file__).resolve().parent
-    module_names = [
-        f"tools.{path.stem}"
-        for path in sorted(tools_path.glob("*.py"))
-        if path.name not in {"__init__.py", "registry.py", "mcp_tool.py"}
-        and _module_registers_tools(path)
-    ]
+    """Import the runtime tool modules, or discover modules in a supplied test directory."""
+    if tools_dir is None:
+        module_names = [f"tools.{name}" for name in _RUNTIME_TOOL_MODULES]
+    else:
+        tools_path = Path(tools_dir)
+        module_names = [
+            f"tools.{path.stem}"
+            for path in sorted(tools_path.glob("*.py"))
+            if path.name not in {"__init__.py", "registry.py", "mcp_tool.py"}
+            and _module_registers_tools(path)
+        ]
 
     imported: List[str] = []
     for mod_name in module_names:

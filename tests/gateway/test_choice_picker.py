@@ -19,7 +19,7 @@ from gateway.platforms.base import MessageEvent, SendResult
 from gateway.session import SessionSource
 
 
-def _make_event(text="/reasoning", platform=Platform.TELEGRAM, user_id="12345", chat_id="67890"):
+def _make_event(text="/reasoning", platform=Platform.FEISHU, user_id="ou_12345", chat_id="oc_67890"):
     source = SessionSource(
         platform=platform,
         user_id=user_id,
@@ -165,7 +165,7 @@ class TestReasoningChoicePicker:
 
         assert runner._show_reasoning is True
         saved = yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
-        assert saved["display"]["platforms"]["telegram"]["show_reasoning"] is True
+        assert saved["display"]["platforms"]["feishu"]["show_reasoning"] is True
 
 
 class TestFastChoicePicker:

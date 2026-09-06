@@ -780,13 +780,6 @@ class HermesConsoleEngine:
                 [("list",), ("approve",), ("revoke",), ("clear-pending",)],
                 {("approve",), ("revoke",), ("clear-pending",)},
             ),
-            "webhook": (
-                "hermes_cli.subcommands.webhook",
-                "build_webhook_parser",
-                "cmd_webhook",
-                [("list",), ("subscribe",), ("remove",), ("test",)],
-                {("subscribe",), ("remove",)},
-            ),
             "hooks": (
                 "hermes_cli.subcommands.hooks",
                 "build_hooks_parser",

@@ -1,5 +1,4 @@
-"""Regression tests for #41289: the Discord/Telegram ``/model`` slash command
-must not run the blocking provider-listing on the gateway's async event loop.
+"""Regression tests for the Feishu ``/model`` slash command.
 
 ``list_picker_providers`` / ``list_authenticated_providers`` are synchronous and
 can fall through to a blocking ``urllib`` HTTP fetch when the on-disk provider
@@ -47,7 +46,7 @@ def _make_event():
     return MessageEvent(
         text="/model",
         message_type=MessageType.TEXT,
-        source=SessionSource(platform=Platform.TELEGRAM, chat_id="12345", chat_type="dm"),
+        source=SessionSource(platform=Platform.FEISHU, chat_id="oc_12345", chat_type="group"),
     )
 
 
@@ -152,7 +151,7 @@ async def test_picker_path_offloads_list_picker_providers(_isolated_config, monk
     )
 
     runner = _make_runner()
-    runner.adapters = {Platform.TELEGRAM: _FakePickerAdapter()}
+    runner.adapters = {Platform.FEISHU: _FakePickerAdapter()}
     # Stub the metadata/anchor helpers the picker branch calls before sending.
     monkeypatch.setattr(runner, "_thread_metadata_for_source", lambda *a, **k: None, raising=False)
     monkeypatch.setattr(runner, "_reply_anchor_for_event", lambda *a, **k: None, raising=False)
@@ -184,7 +183,7 @@ async def test_picker_path_requests_moa_presets(_isolated_config, monkeypatch):
     )
 
     runner = _make_runner()
-    runner.adapters = {Platform.TELEGRAM: _FakePickerAdapter()}
+    runner.adapters = {Platform.FEISHU: _FakePickerAdapter()}
     monkeypatch.setattr(runner, "_thread_metadata_for_source", lambda *a, **k: None, raising=False)
     monkeypatch.setattr(runner, "_reply_anchor_for_event", lambda *a, **k: None, raising=False)
 

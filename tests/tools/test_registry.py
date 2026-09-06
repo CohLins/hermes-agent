@@ -5,7 +5,12 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
-from tools.registry import ToolRegistry, _module_registers_tools, discover_builtin_tools
+from tools.registry import (
+    ToolRegistry,
+    _RUNTIME_TOOL_MODULES,
+    _module_registers_tools,
+    discover_builtin_tools,
+)
 
 
 def _dummy_handler(args, **kwargs):
@@ -353,6 +358,18 @@ class TestCheckFnExceptionHandling:
 
 
 class TestBuiltinDiscovery:
+    def test_runtime_allowlist_covers_feishu_and_api_toolsets(self):
+        from model_tools import TOOL_TO_TOOLSET_MAP
+        from toolsets import resolve_toolset
+
+        expected = set(resolve_toolset("hermes-feishu")) | set(
+            resolve_toolset("hermes-api-server")
+        )
+        registered = set(TOOL_TO_TOOLSET_MAP)
+
+        assert expected <= registered
+        assert "mcp_tool" not in _RUNTIME_TOOL_MODULES
+
     def test_discovers_all_real_self_registering_builtin_tool_modules(self):
         tools_dir = Path(__file__).resolve().parents[2] / "tools"
         expected = [

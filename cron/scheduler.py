@@ -241,41 +241,14 @@ def _resolve_cron_enabled_toolsets(job: dict, cfg: dict) -> list[str] | None:
 
 # Valid delivery platforms — used to validate user-supplied platform names
 # in cron delivery targets, preventing env var enumeration via crafted names.
-_KNOWN_DELIVERY_PLATFORMS = frozenset({
-    "telegram", "discord", "slack", "whatsapp", "signal",
-    "matrix", "mattermost", "homeassistant", "dingtalk", "feishu",
-    "wecom", "wecom_callback", "weixin", "sms", "email", "webhook", "bluebubbles",
-    "qqbot", "yuanbao",
-})
+_KNOWN_DELIVERY_PLATFORMS = frozenset({"feishu"})
 
-# Platforms that support a configured cron/notification home target, mapped to
-# the environment variable used by gateway setup/runtime config.
+# Feishu is the only retained remote cron/notification destination.
 _HOME_TARGET_ENV_VARS = {
-    "matrix": "MATRIX_HOME_ROOM",
-    "telegram": "TELEGRAM_HOME_CHANNEL",
-    "discord": "DISCORD_HOME_CHANNEL",
-    "slack": "SLACK_HOME_CHANNEL",
-    "signal": "SIGNAL_HOME_CHANNEL",
-    "mattermost": "MATTERMOST_HOME_CHANNEL",
-    "sms": "SMS_HOME_CHANNEL",
-    "email": "EMAIL_HOME_ADDRESS",
-    "dingtalk": "DINGTALK_HOME_CHANNEL",
     "feishu": "FEISHU_HOME_CHANNEL",
-    "wecom": "WECOM_HOME_CHANNEL",
-    "weixin": "WEIXIN_HOME_CHANNEL",
-    "bluebubbles": "BLUEBUBBLES_HOME_CHANNEL",
-    "qqbot": "QQBOT_HOME_CHANNEL",
-    "whatsapp": "WHATSAPP_HOME_CHANNEL",
-    "whatsapp_cloud": "WHATSAPP_CLOUD_HOME_CHANNEL",
 }
 
-# Legacy env var names kept for back-compat.  Each entry is the current
-# primary env var → the previous name.  _get_home_target_chat_id falls
-# back to the legacy name if the primary is unset, so users who set the
-# old name before the rename keep working until they migrate.
-_LEGACY_HOME_TARGET_ENV_VARS = {
-    "QQBOT_HOME_CHANNEL": "QQ_HOME_CHANNEL",
-}
+_LEGACY_HOME_TARGET_ENV_VARS: dict[str, str] = {}
 
 from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_run, claim_dispatch, heartbeat_run_claim
 from cron.executions import create_execution, finish_execution, mark_execution_running
@@ -1006,17 +979,14 @@ def _cron_job_origin_log_suffix(job: dict) -> str:
 
 
 def _plugin_cron_env_var(platform_name: str) -> str:
-    """Return the cron home-channel env var registered by a plugin platform.
-
-    Falls through the platform registry so plugins that set
-    ``cron_deliver_env_var`` on their ``PlatformEntry`` get cron delivery
-    support without editing this module.
-    """
+    """Return Feishu's registered cron home-channel environment variable."""
+    if platform_name.lower() != "feishu":
+        return ""
     try:
         from hermes_cli.plugins import discover_plugins
-        discover_plugins()  # idempotent
+        discover_plugins()
         from gateway.platform_registry import platform_registry
-        entry = platform_registry.get(platform_name.lower())
+        entry = platform_registry.get("feishu")
         if entry and entry.cron_deliver_env_var:
             return entry.cron_deliver_env_var
     except Exception:
@@ -1064,29 +1034,11 @@ def _get_home_target_chat_id(platform_name: str) -> str:
 
 
 def _get_home_target_thread_id(platform_name: str) -> Optional[str]:
-    """Return the optional thread/topic ID for a platform home target.
-
-    Telegram-only override: ``TELEGRAM_CRON_THREAD_ID`` takes precedence over
-    ``TELEGRAM_HOME_CHANNEL_THREAD_ID`` for cron delivery. When topic mode is
-    enabled, deliveries that land in the root DM (thread_id unset) end up in
-    the system-only lobby where the user cannot reply — the gateway returns
-    the lobby reminder and drops ``reply_to_message_id`` (#24409). Pointing
-    cron at a dedicated topic via this env var lets replies work as expected
-    without changing the lobby invariant.
-    """
+    """Return the optional Feishu thread ID for a home target."""
     env_var = _resolve_home_env_var(platform_name)
     if not env_var:
         return None
-    if platform_name.lower() == "telegram":
-        cron_thread = os.getenv("TELEGRAM_CRON_THREAD_ID", "").strip()
-        if cron_thread:
-            return cron_thread
-    value = os.getenv(f"{env_var}_THREAD_ID", "").strip()
-    if not value:
-        legacy = _LEGACY_HOME_TARGET_ENV_VARS.get(env_var)
-        if legacy:
-            value = os.getenv(f"{legacy}_THREAD_ID", "").strip()
-    return value or None
+    return os.getenv(f"{env_var}_THREAD_ID", "").strip() or None
 
 
 def _iter_home_target_platforms():
@@ -1158,8 +1110,11 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
 
     if deliver_value == "origin":
         if origin:
+            platform_name = str(origin.get("platform") or "").lower()
+            if not _is_known_delivery_platform(platform_name):
+                return None
             return {
-                "platform": origin["platform"],
+                "platform": platform_name,
                 "chat_id": str(origin["chat_id"]),
                 "thread_id": origin.get("thread_id"),
             }
@@ -1183,6 +1138,8 @@ def _resolve_single_delivery_target(job: dict, deliver_value: str) -> Optional[d
     if ":" in deliver_value:
         platform_name, rest = deliver_value.split(":", 1)
         platform_key = platform_name.lower()
+        if not _is_known_delivery_platform(platform_key):
+            return None
 
         from tools.send_message_tool import _parse_target_ref
 
@@ -1399,62 +1356,6 @@ def _confirm_adapter_delivery(send_result) -> bool:
     if not hasattr(send_result, "success"):
         return False
     return bool(getattr(send_result, "success"))
-
-
-def _is_channel_dm_topic(
-    runtime_adapter: Any,
-    chat_id: Any,
-    loop: Any,
-    job_id: str,
-) -> bool:
-    """Decide whether an (already-ambiguous) Telegram topic target is a genuine
-    Bot API *channel* Direct-Messages topic (route via
-    ``direct_messages_topic_id``) rather than a forum-style topic in a private
-    chat (route via ``message_thread_id``).
-
-    Callers gate this on the ambiguous shape first
-    (``telegram:<positive_chat_id>:<numeric_thread_id>``) — that shape is
-    identical for both cases, so shape alone cannot decide (this was the #52060
-    regression).  The real signal is the chat *type*: a genuine channel DM topic
-    lives on a ``channel`` chat.  Probe the live adapter's ``get_chat_info`` once
-    and only return True when the chat is a channel.
-
-    Fails SAFE to ``message_thread_id`` (returns False) for adapters without a
-    probe, or any probe error/timeout — that is the pre-#22773 behaviour and the
-    correct default for the common forum-topic case.
-    """
-    # Resolve on the CLASS, not the instance (general pitfall #11): a MagicMock
-    # instance auto-creates a truthy ``get_chat_info`` attribute, so an
-    # instance-level probe would misclassify test doubles. Real adapters expose
-    # the coroutine on the class regardless.
-    get_chat_info = getattr(type(runtime_adapter), "get_chat_info", None)
-    if not callable(get_chat_info):
-        return False
-    try:
-        from agent.async_utils import safe_schedule_threadsafe
-
-        future = safe_schedule_threadsafe(
-            get_chat_info(runtime_adapter, str(chat_id)), loop,  # type: ignore[arg-type]
-        )
-        if future is None:
-            return False
-        # Lighter than a send (metadata-only Bot API call), so a shorter bound
-        # than the 30s/60s send waits elsewhere in this file is intentional.
-        info = future.result(timeout=10)
-    except Exception:
-        logger.debug(
-            "Job '%s': get_chat_info probe failed for chat=%s — "
-            "defaulting to message_thread_id routing",
-            job_id, chat_id, exc_info=True,
-        )
-        return False
-    is_channel = isinstance(info, dict) and str(info.get("type") or "").lower() == "channel"
-    if is_channel:
-        logger.info(
-            "Job '%s': chat=%s is a channel — routing via direct_messages_topic_id",
-            job_id, chat_id,
-        )
-    return is_channel
 
 
 def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Optional[str]:
@@ -1680,66 +1581,17 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 opened_thread_id = new_thread_id
 
         if runtime_adapter is not None and loop is not None and getattr(loop, "is_running", lambda: False)():
-            # Telegram topic routing (#22773, regression fixed #52060): a
-            # ``telegram:<positive_chat_id>:<numeric_thread_id>`` cron target is
-            # ambiguous — a forum-style topic in a private chat and a genuine
-            # Bot API channel Direct-Messages topic share the same shape and
-            # need OPPOSITE routing. Disambiguate at delivery time via
-            # ``_is_channel_dm_topic`` (see its docstring for the full
-            # rationale); ``thread_id`` goes in ``route_metadata`` so the
-            # anchorless cron send bypasses the DeliveryRouter's private-chat
-            # reply-anchor requirement. Compute the routed metadata ONCE so both
-            # the text send (via DeliveryRouter) and the media send agree.
-            from gateway.delivery import (
-                DeliveryRouter,
-                DeliveryTarget,
-                _looks_like_int,
-                looks_like_telegram_private_chat_id,
-            )
+            from gateway.delivery import DeliveryRouter, DeliveryTarget
 
-            is_ambiguous_telegram_topic = (
-                platform == Platform.TELEGRAM
-                and thread_id is not None
-                and looks_like_telegram_private_chat_id(str(chat_id))
-                and _looks_like_int(str(thread_id))
-            )
-            route_via_dm_topic = is_ambiguous_telegram_topic and _is_channel_dm_topic(
-                runtime_adapter, chat_id, loop, job["id"],
-            )
-            if route_via_dm_topic:
-                # Genuine Bot API channel Direct-Messages topic (#22773 mode 2):
-                # routed via direct_messages_topic_id, no bare thread_id.
-                route_thread_id = None
-                route_metadata = {
-                    "direct_messages_topic_id": str(thread_id),
-                    "job_id": job["id"],
-                }
-                # Media metadata mirrors the text routing so attachments land in
-                # the same DM topic instead of the General lane (#22773).
-                media_metadata = {"direct_messages_topic_id": str(thread_id)}
-            else:
-                # Forum-style topic (private chat / supergroup) or non-topic
-                # target: route via message_thread_id (#52060).  Put thread_id in
-                # *route_metadata* (not just the DeliveryTarget) deliberately —
-                # the DeliveryRouter's private-chat topic detection
-                # (gateway/delivery.py) demands a reply anchor when thread_id is
-                # absent from metadata; cron deliveries have no inbound reply
-                # anchor, so the metadata key bypasses that check and lets the
-                # adapter route via a plain message_thread_id.
-                route_thread_id = str(thread_id) if thread_id is not None else None
-                route_metadata = {"job_id": job["id"]}
-                if route_thread_id:
-                    route_metadata["thread_id"] = route_thread_id
-                media_metadata = {"thread_id": thread_id} if thread_id else None
+            route_thread_id = str(thread_id) if thread_id is not None else None
+            route_metadata = {"job_id": job["id"]}
+            if route_thread_id:
+                route_metadata["thread_id"] = route_thread_id
+            media_metadata = {"thread_id": thread_id} if thread_id else None
 
             try:
-                # Send cleaned text (MEDIA tags stripped) — not the raw content.
-                # Route through the gateway's DeliveryRouter so the live send
-                # gets the same platform-specific routing as live messages —
-                # in particular Telegram's three-mode topic routing.  The
-                # standalone cron path lacked this, so DM-topic cron deliveries
-                # landed in the General topic or were rejected by Bot API 10.0
-                # (#22773).
+                # Route through the gateway's DeliveryRouter so live adapter
+                # delivery and standalone fallback share the same target shape.
                 text_to_send = cleaned_delivery_content.strip()
                 adapter_ok = True
                 timed_out = False
@@ -1753,11 +1605,6 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                         thread_id=route_thread_id,
                         is_explicit=True,
                     )
-                    # Pass thread routing via the target (not a bare metadata
-                    # "thread_id"): the router only applies its Telegram DM-topic
-                    # detection when "thread_id"/"message_thread_id" are absent
-                    # from metadata, deriving the routing from target.thread_id
-                    # or the explicit direct_messages_topic_id above.
                     future = safe_schedule_threadsafe(
                         router._deliver_to_platform(
                             route_target,
@@ -1984,7 +1831,19 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 try:
                     pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
                     try:
-                        future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
+                        def _run_standalone_send():
+                            return asyncio.run(
+                                _send_to_platform(
+                                    platform,
+                                    pconfig,
+                                    chat_id,
+                                    cleaned_delivery_content,
+                                    thread_id=thread_id,
+                                    media_files=media_files,
+                                )
+                            )
+
+                        future = pool.submit(_run_standalone_send)
                         result = future.result(timeout=30)
                     finally:
                         pool.shutdown(wait=False)

@@ -32,30 +32,10 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Directories that hold platform adapters. Each entry is a directory
-# whose immediate children are either ``adapter.py`` files or
-# sub-packages that expose one.
-ADAPTER_ROOTS = [
-    REPO_ROOT / "gateway" / "platforms",
-    REPO_ROOT / "plugins" / "platforms",
+ADAPTER_FILES = [
+    REPO_ROOT / "gateway" / "platforms" / "api_server.py",
+    REPO_ROOT / "plugins" / "platforms" / "feishu" / "adapter.py",
 ]
-
-
-def _iter_adapter_files() -> list[Path]:
-    """Every ``*adapter*.py`` under the two adapter roots.
-
-    We intentionally cast a wide net (any ``adapter.py`` / ``*_adapter.py``
-    inside these trees) so a new platform can't sneak in without the
-    contract check firing.
-    """
-    files: list[Path] = []
-    for root in ADAPTER_ROOTS:
-        if not root.is_dir():
-            continue
-        for path in root.rglob("*.py"):
-            if path.name == "adapter.py" or path.stem.endswith("_adapter"):
-                files.append(path)
-    return sorted(files)
 
 
 def _find_adapter_classes(module: ast.Module) -> list[ast.ClassDef]:
@@ -103,17 +83,13 @@ def _connect_accepts_is_reconnect(cls: ast.ClassDef) -> bool:
     return False
 
 
-ADAPTER_FILES = _iter_adapter_files()
-
-
 def test_adapter_discovery_finds_platforms():
     """Sanity: the discovery walker actually found a meaningful set of
     adapters. If this drops to a trivial number, the glob broke and the
     contract test below is silently passing on nothing.
     """
-    assert len(ADAPTER_FILES) >= 20, (
-        f"Expected to discover >=20 platform adapter files under "
-        f"{[str(p) for p in ADAPTER_ROOTS]}, found {len(ADAPTER_FILES)}. "
+    assert len(ADAPTER_FILES) == 2, (
+        f"Expected exactly the two retained adapter files, found {len(ADAPTER_FILES)}. "
         f"The discovery glob is likely broken."
     )
 

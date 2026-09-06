@@ -14,7 +14,7 @@ from gateway.platforms.base import MessageEvent
 from gateway.session import SessionSource, build_session_key
 
 
-def _make_event(text="/resume", platform=Platform.TELEGRAM,
+def _make_event(text="/resume", platform=Platform.FEISHU,
                 user_id="12345", chat_id="67890"):
     """Build a MessageEvent for testing."""
     source = SessionSource(
@@ -48,7 +48,7 @@ def _make_runner(session_db=None, current_session_id="current_session_001",
     runner._is_user_authorized = lambda _source: True
 
     # Compute the real session key if an event is provided
-    session_key = build_session_key(event.source) if event else "agent:main:telegram:dm"
+    session_key = build_session_key(event.source) if event else "agent:main:feishu:dm"
 
     # Mock session_store that returns a session entry with a known session_id
     mock_session_entry = MagicMock()
@@ -84,8 +84,8 @@ class TestHandleResumeCommand:
         """With no argument, lists recently titled sessions."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("sess_001", "telegram", user_id="12345", chat_id="67890")
-        db.create_session("sess_002", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("sess_001", "feishu", user_id="12345", chat_id="67890")
+        db.create_session("sess_002", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("sess_001", "Research")
         db.set_session_title("sess_002", "Coding")
 
@@ -105,7 +105,7 @@ class TestHandleResumeCommand:
         """With no arg and no titled sessions, shows instructions."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("sess_001", "telegram", user_id="12345", chat_id="67890")  # No title
+        db.create_session("sess_001", "feishu", user_id="12345", chat_id="67890")  # No title
 
         event = _make_event(text="/resume")
         runner = _make_runner(session_db=db, event=event)
@@ -119,11 +119,11 @@ class TestHandleResumeCommand:
         """Numeric argument resumes the indexed titled session from the list."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("sess_001", "telegram", user_id="12345", chat_id="67890")
-        db.create_session("sess_002", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("sess_001", "feishu", user_id="12345", chat_id="67890")
+        db.create_session("sess_002", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("sess_001", "Research")
         db.set_session_title("sess_002", "Coding")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume 2")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -141,9 +141,9 @@ class TestHandleResumeCommand:
         """Out-of-range numeric arguments show a helpful error."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("sess_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("sess_001", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("sess_001", "Research")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume 9")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -160,9 +160,9 @@ class TestHandleResumeCommand:
         """Resolves a title and switches to that session."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("old_session_abc", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("old_session_abc", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("old_session_abc", "My Project")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume My Project")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -183,9 +183,9 @@ class TestHandleResumeCommand:
         restored conversation, while leaving other chats' overrides intact (#10702)."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("old_session_abc", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("old_session_abc", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("old_session_abc", "My Project")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume My Project")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -193,11 +193,11 @@ class TestHandleResumeCommand:
         key = _session_key_for_event(event)
         runner._session_model_overrides = {
             key: {"model": "gpt-5", "provider": "openai"},
-            "agent:main:telegram:dm:other": {"model": "keep-me"},
+            "agent:main:feishu:dm:other": {"model": "keep-me"},
         }
         runner._pending_model_notes = {
             key: "[Note: switched to gpt-5]",
-            "agent:main:telegram:dm:other": "[Note: keep-me]",
+            "agent:main:feishu:dm:other": "[Note: keep-me]",
         }
 
         result = await runner._handle_resume_command(event)
@@ -207,8 +207,8 @@ class TestHandleResumeCommand:
         assert key not in runner._session_model_overrides
         assert key not in runner._pending_model_notes
         # ...but an unrelated chat's state is untouched.
-        assert runner._session_model_overrides["agent:main:telegram:dm:other"] == {"model": "keep-me"}
-        assert runner._pending_model_notes["agent:main:telegram:dm:other"] == "[Note: keep-me]"
+        assert runner._session_model_overrides["agent:main:feishu:dm:other"] == {"model": "keep-me"}
+        assert runner._pending_model_notes["agent:main:feishu:dm:other"] == "[Note: keep-me]"
         db.close()
 
     @pytest.mark.asyncio
@@ -220,9 +220,9 @@ class TestHandleResumeCommand:
         chats' cache entries intact."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("old_session_abc", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("old_session_abc", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("old_session_abc", "My Project")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume My Project")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -230,14 +230,14 @@ class TestHandleResumeCommand:
         key = _session_key_for_event(event)
         runner._last_resolved_model = {
             key: "gpt-5",
-            "agent:main:telegram:dm:other": "keep-me",
+            "agent:main:feishu:dm:other": "keep-me",
         }
 
         result = await runner._handle_resume_command(event)
 
         assert "Resumed" in result
         assert key not in runner._last_resolved_model
-        assert runner._last_resolved_model["agent:main:telegram:dm:other"] == "keep-me"
+        assert runner._last_resolved_model["agent:main:feishu:dm:other"] == "keep-me"
         db.close()
 
     @pytest.mark.asyncio
@@ -245,7 +245,7 @@ class TestHandleResumeCommand:
         """Returns error for unknown session name."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume Nonexistent Session")
         runner = _make_runner(session_db=db, event=event)
@@ -258,7 +258,7 @@ class TestHandleResumeCommand:
         """Returns friendly message when already on the requested session."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("current_session_001", "Active Project")
 
         event = _make_event(text="/resume Active Project")
@@ -273,11 +273,11 @@ class TestHandleResumeCommand:
         """Asking for 'My Project' when 'My Project #2' exists gets the latest."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("sess_v1", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("sess_v1", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("sess_v1", "My Project")
-        db.create_session("sess_v2", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("sess_v2", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("sess_v2", "My Project #2")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume My Project")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -296,12 +296,12 @@ class TestHandleResumeCommand:
         from hermes_state import SessionDB
 
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("compressed_root", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("compressed_root", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("compressed_root", "Compressed Work")
         db.end_session("compressed_root", "compression")
-        db.create_session("compressed_child", "telegram", user_id="12345", chat_id="67890", parent_session_id="compressed_root")
+        db.create_session("compressed_child", "feishu", user_id="12345", chat_id="67890", parent_session_id="compressed_root")
         db.append_message("compressed_child", "user", "hello from continuation")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume Compressed Work")
         runner = _make_runner(
@@ -329,9 +329,9 @@ class TestHandleResumeCommand:
         """Switching sessions clears any cached running agent."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("old_session", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("old_session", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("old_session", "Old Work")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume Old Work")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -355,9 +355,9 @@ class TestHandleResumeCommand:
         import threading
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("old_session", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("old_session", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("old_session", "Old Work")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume Old Work")
         runner = _make_runner(session_db=db, current_session_id="current_session_001",
@@ -382,9 +382,9 @@ class TestHandleResumeCommand:
         """
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("abc123", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("abc123", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("abc123", "Bracketed")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         for raw in ("<abc123>", "[abc123]", '"abc123"', "'abc123'"):
             event = _make_event(text=f"/resume {raw}")
@@ -411,9 +411,9 @@ class TestHandleResumeCommand:
         """
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("unnamed_session_xyz", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("unnamed_session_xyz", "feishu", user_id="12345", chat_id="67890")
         # Deliberately no title set — this session can ONLY be resolved by ID.
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         event = _make_event(text="/resume unnamed_session_xyz")
         runner = _make_runner(
@@ -438,8 +438,8 @@ class TestHandleSessionsCommand:
     async def test_sessions_command_lists_current_platform_sessions(self, tmp_path):
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("tg_session", "telegram", user_id="12345", chat_id="67890")
-        db.set_session_title("tg_session", "Telegram Work")
+        db.create_session("tg_session", "feishu", user_id="12345", chat_id="67890")
+        db.set_session_title("tg_session", "Feishu Work")
         db.create_session("discord_session", "discord")
         db.set_session_title("discord_session", "Discord Work")
 
@@ -449,7 +449,7 @@ class TestHandleSessionsCommand:
         result = await runner._handle_sessions_command(event)
 
         assert "Sessions" in result
-        assert "Telegram Work" in result
+        assert "Feishu Work" in result
         assert "tg_session" in result
         assert "Discord Work" not in result
         db.close()
@@ -463,8 +463,8 @@ class TestHandleSessionsCommand:
         config is not."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("tg_named", "telegram", user_id="12345", chat_id="67890")
-        db.set_session_title("tg_named", "Telegram Work")
+        db.create_session("tg_named", "feishu", user_id="12345", chat_id="67890")
+        db.set_session_title("tg_named", "Feishu Work")
         db.create_session("discord_unnamed", "discord")  # other origin
         db.append_message("discord_unnamed", "user", "discord first prompt")
 
@@ -473,9 +473,9 @@ class TestHandleSessionsCommand:
 
         result = await runner._handle_sessions_command(event)
 
-        # Caller's own (telegram) session is shown; the cross-origin (discord)
+        # Caller's own (feishu) session is shown; the cross-origin (discord)
         # session is NOT leaked even with `all`.
-        assert "Telegram Work" in result
+        assert "Feishu Work" in result
         assert "discord_unnamed" not in result
         assert "Discord" not in result
         db.close()
@@ -487,11 +487,11 @@ class TestHandleSessionsCommand:
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
         # Bury the target under newer sessions so a plain listing misses it.
-        db.create_session("target_an94", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("target_an94", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("target_an94", "AN-94 Prestige Barrel Build #2")
         for i in range(12):
             sid = f"filler_{i}"
-            db.create_session(sid, "telegram", user_id="12345", chat_id="67890")
+            db.create_session(sid, "feishu", user_id="12345", chat_id="67890")
             db.set_session_title(sid, f"Filler {i}")
 
         event = _make_event(text="/sessions search an94")
@@ -520,9 +520,9 @@ class TestHandleSessionsCommand:
         a matching title owned by a different user/chat must not surface."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("mine", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("mine", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("mine", "AN-94 mine")
-        db.create_session("theirs", "telegram", user_id="99999", chat_id="55555")
+        db.create_session("theirs", "feishu", user_id="99999", chat_id="55555")
         db.set_session_title("theirs", "AN-94 someone else's secret")
 
         event = _make_event(text="/sessions search an94")
@@ -541,11 +541,11 @@ class TestHandleSessionsCommand:
         recorded owner (NULL user_id) must both be denied (IDOR)."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("victim_other_uid", "telegram", user_id="99999")
+        db.create_session("victim_other_uid", "feishu", user_id="99999")
         db.set_session_title("victim_other_uid", "Other User")
-        db.create_session("victim_missing_uid", "telegram")  # NULL owner
+        db.create_session("victim_missing_uid", "feishu")  # NULL owner
         db.set_session_title("victim_missing_uid", "Unowned")
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         for name in ("Other User", "victim_other_uid", "Unowned", "victim_missing_uid"):
             event = _make_event(text=f"/resume {name}")
@@ -565,14 +565,14 @@ class TestHandleSessionsCommand:
         unproven-origin transcript)."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("blank_source_same_uid", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("blank_source_same_uid", "feishu", user_id="12345", chat_id="67890")
         db.set_session_title("blank_source_same_uid", "Blank Source Same UID")
         # Simulate a malformed/legacy row that does not record its origin.
         db._conn.execute(
             "UPDATE sessions SET source = '' WHERE id = ?", ("blank_source_same_uid",)
         )
         db._conn.commit()
-        db.create_session("current_session_001", "telegram", user_id="12345", chat_id="67890")
+        db.create_session("current_session_001", "feishu", user_id="12345", chat_id="67890")
 
         for name in ("Blank Source Same UID", "blank_source_same_uid"):
             event = _make_event(text=f"/resume {name}")
@@ -587,13 +587,13 @@ class TestHandleSessionsCommand:
     async def test_resume_blocks_no_identity_caller_on_persisted_row(self, tmp_path):
         """A caller with no user_id must not resume a persisted row on
         same-platform alone: the row has no chat_id to prove ownership, so a
-        Telegram group caller in chat-a (user_id=None) cannot bind to a row
+        Feishu group caller in chat-a (user_id=None) cannot bind to a row
         owned by another chat/user (IDOR regression for the no-identity branch)."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("victim_chat_b_uid", "telegram", user_id="victim")
+        db.create_session("victim_chat_b_uid", "feishu", user_id="victim")
         db.set_session_title("victim_chat_b_uid", "Victim Chat B")
-        db.create_session("current_session_001", "telegram")
+        db.create_session("current_session_001", "feishu")
 
         for name in ("Victim Chat B", "victim_chat_b_uid"):
             event = _make_event(text=f"/resume {name}", user_id=None,
@@ -612,10 +612,10 @@ class TestHandleSessionsCommand:
         identity-less caller (no live origin resolvable)."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("victim_chat_b_uid", "telegram", user_id="victim")
+        db.create_session("victim_chat_b_uid", "feishu", user_id="victim")
         runner = _make_runner(session_db=db)
         runner._gateway_session_origin_for_id = lambda sid: None  # inactive/persisted-only
-        caller = SessionSource(platform=Platform.TELEGRAM, chat_id="chat-a",
+        caller = SessionSource(platform=Platform.FEISHU, chat_id="chat-a",
                                chat_type="group", user_id=None)
         assert await runner._resume_target_allowed(caller, "victim_chat_b_uid",
                                              allow_override=False) is False
@@ -629,10 +629,10 @@ class TestHandleSessionsCommand:
         a matching user_id (persisted-row chat-scope proof)."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("same_user_chat_b", "telegram", user_id="12345",
+        db.create_session("same_user_chat_b", "feishu", user_id="12345",
                           chat_id="chat-b")
         db.set_session_title("same_user_chat_b", "Same User Chat B")
-        db.create_session("current_session_001", "telegram", user_id="12345",
+        db.create_session("current_session_001", "feishu", user_id="12345",
                           chat_id="chat-a")
 
         for name in ("Same User Chat B", "same_user_chat_b"):
@@ -652,14 +652,14 @@ class TestHandleSessionsCommand:
         origin chat (and thread) to match the caller's."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("row_chat_a", "telegram", user_id="12345",
+        db.create_session("row_chat_a", "feishu", user_id="12345",
                           chat_id="chat-a")
-        db.create_session("row_chat_b", "telegram", user_id="12345",
+        db.create_session("row_chat_b", "feishu", user_id="12345",
                           chat_id="chat-b")
-        db.create_session("row_legacy_nochat", "telegram", user_id="12345")  # NULL chat
+        db.create_session("row_legacy_nochat", "feishu", user_id="12345")  # NULL chat
         runner = _make_runner(session_db=db)
         runner._gateway_session_origin_for_id = lambda sid: None  # persisted-only
-        caller = SessionSource(platform=Platform.TELEGRAM, chat_id="chat-a",
+        caller = SessionSource(platform=Platform.FEISHU, chat_id="chat-a",
                                chat_type="group", user_id="12345")
         # Same chat → allowed; different chat → blocked; legacy NULL-chat → blocked.
         assert await runner._resume_target_allowed(caller, "row_chat_a", allow_override=False) is True
@@ -668,7 +668,7 @@ class TestHandleSessionsCommand:
         # egilewski/CodeRabbit probe: a GROUP caller that itself has no chat_id
         # must NOT resume a legacy NULL-chat row just because both normalize to
         # "" — a non-DM session is keyed by chat_id, so blank == no provenance.
-        blank_caller = SessionSource(platform=Platform.TELEGRAM, chat_id=None,
+        blank_caller = SessionSource(platform=Platform.FEISHU, chat_id=None,
                                      chat_type="group", user_id="12345")
         assert await runner._resume_target_allowed(blank_caller, "row_legacy_nochat",
                                              allow_override=False) is False
@@ -680,12 +680,12 @@ class TestHandleSessionsCommand:
         user (chat_id legitimately absent on both sides), unlike a group row."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("dm_row", "telegram", user_id="12345")  # DM, no chat_id
+        db.create_session("dm_row", "feishu", user_id="12345")  # DM, no chat_id
         runner = _make_runner(session_db=db)
         runner._gateway_session_origin_for_id = lambda sid: None  # persisted-only
-        same = SessionSource(platform=Platform.TELEGRAM, chat_id=None,
+        same = SessionSource(platform=Platform.FEISHU, chat_id=None,
                              chat_type="dm", user_id="12345")
-        other = SessionSource(platform=Platform.TELEGRAM, chat_id=None,
+        other = SessionSource(platform=Platform.FEISHU, chat_id=None,
                               chat_type="dm", user_id="99999")
         assert await runner._resume_target_allowed(same, "dm_row", allow_override=False) is True
         assert await runner._resume_target_allowed(other, "dm_row", allow_override=False) is False
@@ -699,11 +699,11 @@ class TestHandleSessionsCommand:
         not required. Per-user groups (default) still require the same owner."""
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("shared_group_row", "telegram", user_id="bob",
+        db.create_session("shared_group_row", "feishu", user_id="bob",
                           chat_id="shared-chat", chat_type="group")
         runner = _make_runner(session_db=db)
         runner._gateway_session_origin_for_id = lambda sid: None  # persisted-only
-        alice = SessionSource(platform=Platform.TELEGRAM, chat_id="shared-chat",
+        alice = SessionSource(platform=Platform.FEISHU, chat_id="shared-chat",
                               chat_type="group", user_id="alice")
 
         # Shared group → Alice may resume Bob's row in the same chat.
@@ -716,7 +716,7 @@ class TestHandleSessionsCommand:
                                                    allow_override=False) is False
         # A different chat is still blocked even when shared.
         runner.config.group_sessions_per_user = False
-        other_chat = SessionSource(platform=Platform.TELEGRAM, chat_id="other-chat",
+        other_chat = SessionSource(platform=Platform.FEISHU, chat_id="other-chat",
                                    chat_type="group", user_id="alice")
         assert await runner._resume_target_allowed(other_chat, "shared_group_row",
                                                    allow_override=False) is False
@@ -724,64 +724,51 @@ class TestHandleSessionsCommand:
 
     @pytest.mark.asyncio
     async def test_resume_persisted_fallback_fails_closed_on_user_id_alt(self, tmp_path):
-        """egilewski/CodeRabbit probe: Signal/Feishu key the session participant
-        on ``user_id_alt or user_id`` (build_session_key), but the sessions table
-        stores only user_id. So a persisted per-user row that a caller shares the
-        user_id of — but NOT the user_id_alt — maps to a DIFFERENT live session
-        key; the persisted fallback must NOT match it on user_id alone (IDOR).
-
-        The live-origin guard already compares user_id_alt correctly; here the
-        target is persisted-only, so the fallback fails closed whenever the
-        caller keys on user_id_alt and the row can't prove that participant."""
+        """Feishu keys the session participant on ``user_id_alt or user_id``
+        while persisted rows store only user_id. A caller whose user_id_alt
+        differs must fail closed rather than match on user_id alone."""
         from hermes_state import SessionDB
-        db = SessionDB(db_path=tmp_path / "state.db")
-        # Persisted rows carry only user_id (no user_id_alt column).
-        db.create_session("victim_alt_group", "signal", user_id="+15550001111",
-                          chat_id="signal-group", chat_type="group")
-        db.create_session("victim_alt_dm", "signal", user_id="+15550001111")  # no chat_id
-        runner = _make_runner(session_db=db)
-        runner._gateway_session_origin_for_id = lambda sid: None  # persisted-only
 
-        # Per-user group: attacker shares user_id but has a different user_id_alt
-        # → different session key → must fail closed (was: allowed via user_id).
-        attacker = SessionSource(platform=Platform.SIGNAL, chat_id="signal-group",
-                                 chat_type="group", user_id="+15550001111",
-                                 user_id_alt="attacker-uuid")
+        db = SessionDB(db_path=tmp_path / "state.db")
+        db.create_session("victim_alt_group", "feishu", user_id="ou_victim",
+                          chat_id="group-a", chat_type="group")
+        db.create_session("victim_alt_dm", "feishu", user_id="ou_victim")
+        runner = _make_runner(session_db=db)
+        runner._gateway_session_origin_for_id = lambda sid: None
+
+        attacker = SessionSource(platform=Platform.FEISHU, chat_id="group-a",
+                                 chat_type="group", user_id="ou_victim",
+                                 user_id_alt="on_attacker")
         assert await runner._resume_target_allowed(attacker, "victim_alt_group",
                                                    allow_override=False) is False
-        # No-chat_id DM keyed purely on the participant: same block.
-        dm_attacker = SessionSource(platform=Platform.SIGNAL, chat_id=None,
-                                    chat_type="dm", user_id="+15550001111",
-                                    user_id_alt="attacker-uuid")
+        dm_attacker = SessionSource(platform=Platform.FEISHU, chat_id=None,
+                                    chat_type="dm", user_id="ou_victim",
+                                    user_id_alt="on_attacker")
         assert await runner._resume_target_allowed(dm_attacker, "victim_alt_dm",
                                                    allow_override=False) is False
 
-        # Regression: a caller WITHOUT user_id_alt (Telegram-style, keyed on
-        # user_id) still resumes its own persisted per-user group row.
-        tg_db = SessionDB(db_path=tmp_path / "state_tg.db")
-        tg_db.create_session("own_group", "telegram", user_id="12345",
-                             chat_id="chat-a", chat_type="group")
-        tg_runner = _make_runner(session_db=tg_db)
-        tg_runner._gateway_session_origin_for_id = lambda sid: None
-        tg_caller = SessionSource(platform=Platform.TELEGRAM, chat_id="chat-a",
-                                  chat_type="group", user_id="12345")
-        assert await tg_runner._resume_target_allowed(tg_caller, "own_group",
-                                                      allow_override=False) is True
+        own_db = SessionDB(db_path=tmp_path / "state_own.db")
+        own_db.create_session("own_group", "feishu", user_id="ou_owner",
+                              chat_id="group-a", chat_type="group")
+        own_runner = _make_runner(session_db=own_db)
+        own_runner._gateway_session_origin_for_id = lambda sid: None
+        own_caller = SessionSource(platform=Platform.FEISHU, chat_id="group-a",
+                                   chat_type="group", user_id="ou_owner")
+        assert await own_runner._resume_target_allowed(own_caller, "own_group",
+                                                        allow_override=False) is True
 
-        # Regression: an EXPLICITLY-shared group is unaffected — participant
-        # scoping doesn't apply, so an alt-keyed co-member still resumes.
         runner.config.group_sessions_per_user = False
         assert await runner._resume_target_allowed(attacker, "victim_alt_group",
                                                    allow_override=False) is True
         db.close()
-        tg_db.close()
+        own_db.close()
 
     @pytest.mark.asyncio
     async def test_gateway_dispatches_sessions_command(self, tmp_path):
         from hermes_state import SessionDB
         db = SessionDB(db_path=tmp_path / "state.db")
-        db.create_session("tg_session", "telegram", user_id="12345", chat_id="67890")
-        db.set_session_title("tg_session", "Telegram Work")
+        db.create_session("tg_session", "feishu", user_id="12345", chat_id="67890")
+        db.set_session_title("tg_session", "Feishu Work")
 
         event = _make_event(text="/sessions")
         runner = _make_runner(session_db=db, event=event)
@@ -801,7 +788,7 @@ class TestSameOriginChatGroupScoping:
 
     @staticmethod
     def _src(user_id, *, chat_type="group", chat_id="guild-123",
-             platform=Platform.DISCORD, user_id_alt=None, thread_id=None):
+             platform=Platform.FEISHU, user_id_alt=None, thread_id=None):
         return SessionSource(platform=platform, chat_id=chat_id,
                              chat_type=chat_type, user_id=user_id,
                              user_id_alt=user_id_alt, thread_id=thread_id)
@@ -902,102 +889,3 @@ class TestSameOriginChatGroupScoping:
         assert runner._same_origin_chat(threaded, parent) is False
 
 
-class TestResumeRowVisibleMatrixAllScoping:
-    """Non-admin Matrix `/resume --all` must NOT enumerate every Matrix titled
-    session: the cross-room listing short-circuit is admin-only, mirroring the
-    non-Matrix branch. A non-admin `--all` falls back to same-room scoping."""
-
-    @staticmethod
-    def _matrix_src(chat_id="!room-a:hs", user_id="@alice:hs"):
-        return SessionSource(platform=Platform.MATRIX, chat_id=chat_id,
-                             chat_type="group", user_id=user_id)
-
-    @pytest.mark.asyncio
-    async def test_non_admin_all_does_not_expose_other_room(self):
-        runner = _make_runner()
-        runner._resume_caller_is_admin = lambda src: False
-        # Titled row whose live origin is a DIFFERENT Matrix room.
-        other_room = SessionSource(platform=Platform.MATRIX, chat_id="!room-b:hs",
-                                   chat_type="group", user_id="@bob:hs")
-        runner._gateway_session_origin_for_id = lambda sid: other_room
-        row = {"id": "sid_other_room"}
-        assert await runner._resume_row_visible(self._matrix_src(), row, allow_all=True) is False
-
-    @pytest.mark.asyncio
-    async def test_non_admin_all_still_shows_same_room(self):
-        runner = _make_runner()
-        runner._resume_caller_is_admin = lambda src: False
-        same_room = SessionSource(platform=Platform.MATRIX, chat_id="!room-a:hs",
-                                  chat_type="group", user_id="@bob:hs")
-        runner._gateway_session_origin_for_id = lambda sid: same_room
-        row = {"id": "sid_same_room"}
-        assert await runner._resume_row_visible(self._matrix_src(), row, allow_all=True) is True
-
-    @pytest.mark.asyncio
-    async def test_admin_all_exposes_cross_room(self):
-        runner = _make_runner()
-        runner._resume_caller_is_admin = lambda src: True
-        other_room = SessionSource(platform=Platform.MATRIX, chat_id="!room-b:hs",
-                                   chat_type="group", user_id="@bob:hs")
-        runner._gateway_session_origin_for_id = lambda sid: other_room
-        row = {"id": "sid_other_room"}
-        assert await runner._resume_row_visible(self._matrix_src(), row, allow_all=True) is True
-
-    @pytest.mark.asyncio
-    async def test_non_admin_all_fails_closed_on_unknown_origin(self):
-        runner = _make_runner()
-        runner._resume_caller_is_admin = lambda src: False
-        runner._gateway_session_origin_for_id = lambda sid: None
-        row = {"id": "sid_unknown"}
-        assert await runner._resume_row_visible(self._matrix_src(), row, allow_all=True) is False
-
-
-class TestSameMatrixRoomThreadScoping:
-    """Matrix `/resume` (direct and listing) scopes by room AND thread: a live
-    session in another thread of the same room is a different session
-    (build_session_key appends thread_id), so a caller in thread A must not
-    resume/enumerate a target whose origin is in thread B. Non-threaded rooms
-    keep room-level sharing unchanged."""
-
-    @staticmethod
-    def _msrc(chat_id="!room-a:hs", user_id="@alice:hs", thread_id=None):
-        return SessionSource(platform=Platform.MATRIX, chat_id=chat_id,
-                             chat_type="group", user_id=user_id, thread_id=thread_id)
-
-    def test_same_room_no_thread_still_shared(self):
-        runner = _make_runner()
-        a = self._msrc(user_id="@alice:hs")
-        b = self._msrc(user_id="@bob:hs")
-        assert runner._same_matrix_room(a, b) is True
-
-    def test_same_room_same_thread_shared(self):
-        runner = _make_runner()
-        a = self._msrc(user_id="@alice:hs", thread_id="thr-1")
-        b = self._msrc(user_id="@bob:hs", thread_id="thr-1")
-        assert runner._same_matrix_room(a, b) is True
-
-    def test_cross_thread_same_room_blocked(self):
-        """The reviewer's probe: caller in thread-a, target origin in thread-b
-        of the same room → must not match."""
-        runner = _make_runner()
-        caller = self._msrc(thread_id="thread-a")
-        victim_origin = self._msrc(thread_id="thread-b")
-        assert runner._same_matrix_room(caller, victim_origin) is False
-
-    def test_thread_vs_no_thread_blocked(self):
-        runner = _make_runner()
-        threaded = self._msrc(thread_id="thread-a")
-        room_level = self._msrc(thread_id=None)
-        assert runner._same_matrix_room(threaded, room_level) is False
-        assert runner._same_matrix_room(room_level, threaded) is False
-
-    @pytest.mark.asyncio
-    async def test_resume_row_visible_blocks_cross_thread(self):
-        """End-to-end through the Matrix listing guard."""
-        runner = _make_runner()
-        runner._resume_caller_is_admin = lambda src: False
-        origin_thread_b = self._msrc(thread_id="thread-b")
-        runner._gateway_session_origin_for_id = lambda sid: origin_thread_b
-        row = {"id": "sid_thread_b"}
-        caller_thread_a = self._msrc(thread_id="thread-a")
-        assert await runner._resume_row_visible(caller_thread_a, row, allow_all=False) is False

@@ -1,31 +1,8 @@
-"""Provider module registry.
+"""Provider module registry for the Feishu/API distribution.
 
-Provider profiles can live in two places:
-
-1. Bundled plugins: ``plugins/model-providers/<name>/`` (shipped with hermes-agent)
-2. User plugins: ``$HERMES_HOME/plugins/model-providers/<name>/``
-
-Each plugin directory contains:
-  - ``__init__.py`` — calls ``register_provider(profile)`` at import
-  - ``plugin.yaml`` — manifest (name, kind: model-provider, version, description)
-
-Discovery is lazy: the first call to ``get_provider_profile()`` or
-``list_providers()`` scans both locations and imports every plugin. User
-plugins override bundled plugins on name collision (last-writer-wins), so
-third parties can monkey-patch or replace any built-in profile without
-editing the repo.
-
-For backward compatibility, ``providers/*.py`` files (other than ``base.py``
-and ``__init__.py``) are still discovered via ``pkgutil.iter_modules``.
-This lets out-of-tree users drop a single-file profile into an editable
-install without the plugin dir structure. New profiles should prefer the
-plugin layout.
-
-Usage::
-
-    from providers import get_provider_profile
-    profile = get_provider_profile("nvidia")   # ProviderProfile or None
-    profile = get_provider_profile("kimi")     # checks name + aliases
+Only the bundled ``custom`` provider is loaded. The active Feishu profile uses
+an OpenAI-compatible custom endpoint, so loading every bundled provider and
+legacy drop-in module only expands startup cost and dependency surface.
 """
 
 from __future__ import annotations
@@ -53,9 +30,8 @@ _BUNDLED_PLUGINS_DIR = (
 def register_provider(profile: ProviderProfile) -> None:
     """Register a provider profile by name and aliases.
 
-    Later registrations with the same name replace earlier ones — so user
-    plugins under ``$HERMES_HOME/plugins/model-providers/`` can override
-    bundled profiles without editing repo code.
+    The active profile may override the bundled custom profile from
+    ``$HERMES_HOME/plugins/model-providers/custom``.
     """
     _REGISTRY[profile.name] = profile
     for alias in profile.aliases:
@@ -138,54 +114,18 @@ def _import_plugin_dir(plugin_dir: Path, source: str) -> None:
 
 
 def _discover_providers() -> None:
-    """Populate the registry by importing every provider plugin.
-
-    Order:
-      1. Bundled plugins at ``<repo>/plugins/model-providers/<name>/``
-      2. User plugins at ``$HERMES_HOME/plugins/model-providers/<name>/``
-      3. Legacy per-file modules at ``providers/<name>.py`` (back-compat)
-
-    Each step imports its plugins, which call ``register_provider()`` at
-    module-level. Later steps win on name collision.
-    """
+    """Load the bundled custom profile and active-profile custom overrides."""
     global _discovered
     if _discovered:
         return
     _discovered = True
 
-    # 1. Bundled plugins — shipped with hermes-agent.
-    if _BUNDLED_PLUGINS_DIR.is_dir():
-        for child in sorted(_BUNDLED_PLUGINS_DIR.iterdir()):
-            if not child.is_dir() or child.name.startswith(("_", ".")):
-                continue
-            _import_plugin_dir(child, "bundled")
+    bundled = _BUNDLED_PLUGINS_DIR / "custom"
+    if bundled.is_dir():
+        _import_plugin_dir(bundled, "bundled")
 
-    # 2. User plugins — under $HERMES_HOME/plugins/model-providers/<name>/.
-    #    These can override any bundled profile of the same name (last-writer-wins
-    #    in register_provider()).
     user_dir = _user_plugins_dir()
     if user_dir is not None:
-        for child in sorted(user_dir.iterdir()):
-            if not child.is_dir() or child.name.startswith(("_", ".")):
-                continue
-            _import_plugin_dir(child, "user")
-
-    # 3. Legacy single-file profiles at providers/<name>.py. Kept for
-    #    back-compat — if someone drops a ``providers/foo.py`` into an
-    #    editable install, it still works without the plugin layout.
-    try:
-        import pkgutil
-
-        import providers as _pkg
-
-        for _importer, modname, _ispkg in pkgutil.iter_modules(_pkg.__path__):
-            if modname.startswith("_") or modname == "base":
-                continue
-            try:
-                importlib.import_module(f"providers.{modname}")
-            except ImportError as exc:
-                logger.warning(
-                    "Failed to import legacy provider module %s: %s", modname, exc
-                )
-    except Exception:
-        pass
+        override = user_dir / "custom"
+        if override.is_dir():
+            _import_plugin_dir(override, "user")

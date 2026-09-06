@@ -317,64 +317,19 @@ class TestActiveFeatures:
         assert "platform.slack" not in active
 
     def test_multi_package_feature_active_if_any_present(self, monkeypatch):
-        # platform.slack has 3 packages; only one needs to be present
-        # for the feature to count as active (user activated it before,
-        # one transitive may have been uninstalled separately).
+        # The Feishu adapter has two packages; either one is enough for the
+        # feature to count as previously activated.
         monkeypatch.setattr(
             ld, "_is_present",
-            lambda spec: ld._pkg_name_from_spec(spec) == "slack-bolt",
+            lambda spec: ld._pkg_name_from_spec(spec) == "lark-oapi",
         )
-        assert "platform.slack" in ld.active_features()
+        assert "platform.feishu" in ld.active_features()
 
 
 class TestRefreshActiveFeatures:
     def test_no_active_features_returns_empty(self, monkeypatch):
         monkeypatch.setattr(ld, "active_features", lambda: [])
         assert ld.refresh_active_features() == {}
-
-    def test_windows_matrix_refresh_is_skipped_before_pip(self, monkeypatch):
-        # Matrix E2EE pulls python-olm, which has no native Windows wheel/build
-        # path. `hermes update` must not retry that doomed install every run.
-        monkeypatch.setattr(ld.sys, "platform", "win32")
-        monkeypatch.setattr(ld, "active_features", lambda: ["platform.matrix"])
-        monkeypatch.setattr(ld, "_is_satisfied", lambda spec: False)
-        monkeypatch.setattr(ld, "_allow_lazy_installs", lambda: True)
-        monkeypatch.setattr(
-            ld,
-            "_venv_pip_install",
-            lambda *a, **kw: pytest.fail("pip should not be called for unsupported Matrix on Windows"),
-        )
-
-        result = ld.refresh_active_features()
-
-        assert result["platform.matrix"].startswith("skipped:")
-        assert "unsupported on Windows" in result["platform.matrix"]
-
-    def test_windows_matrix_ensure_fails_before_pip(self, monkeypatch):
-        monkeypatch.setattr(ld.sys, "platform", "win32")
-        monkeypatch.setattr(ld, "_is_satisfied", lambda spec: False)
-        monkeypatch.setattr(ld, "_allow_lazy_installs", lambda: True)
-        monkeypatch.setattr(
-            ld,
-            "_venv_pip_install",
-            lambda *a, **kw: pytest.fail("pip should not be called for unsupported Matrix on Windows"),
-        )
-
-        with pytest.raises(ld.FeatureUnavailable, match="unsupported on Windows"):
-            ld.ensure("platform.matrix", prompt=False)
-
-    def test_windows_matrix_already_satisfied_still_works(self, monkeypatch):
-        # Do not break users who already have a working Matrix dependency set;
-        # only the impossible Windows install/refresh path should be blocked.
-        monkeypatch.setattr(ld.sys, "platform", "win32")
-        monkeypatch.setattr(ld, "_is_satisfied", lambda spec: True)
-        monkeypatch.setattr(
-            ld,
-            "_venv_pip_install",
-            lambda *a, **kw: pytest.fail("pip should not be called when Matrix deps are current"),
-        )
-
-        ld.ensure("platform.matrix", prompt=False)
 
     def test_already_current_is_noop(self, monkeypatch):
         monkeypatch.setattr(ld, "active_features", lambda: ["test.feat"])

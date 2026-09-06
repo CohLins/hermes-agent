@@ -79,8 +79,16 @@ def _get_session_db():
         return None
 
 
+def _is_feishu_session_entry(entry: object) -> bool:
+    """Return whether a session-index entry belongs to the Feishu distribution."""
+    if not isinstance(entry, dict):
+        return False
+    origin = entry.get("origin") or {}
+    return origin.get("platform") == "feishu" or entry.get("platform") == "feishu"
+
+
 def _load_sessions_index() -> dict:
-    """Load the gateway session routing index.
+    """Load the Feishu gateway session routing index.
 
     Returns a dict of session_key -> entry_dict with platform routing info.
 
@@ -92,8 +100,9 @@ def _load_sessions_index() -> dict:
     """
     entries = _load_sessions_index_from_db()
     if entries:
-        return entries
-    return _load_sessions_index_from_json()
+        return {key: entry for key, entry in entries.items() if _is_feishu_session_entry(entry)}
+    entries = _load_sessions_index_from_json()
+    return {key: entry for key, entry in entries.items() if _is_feishu_session_entry(entry)}
 
 
 def _row_to_index_entry(row: dict) -> dict:
@@ -128,7 +137,7 @@ def _row_to_index_entry(row: dict) -> dict:
     return {
         "session_id": str(row.get("id", "")),
         "session_key": row.get("session_key", ""),
-        "platform": row.get("source", ""),
+        "platform": origin.get("platform") or row.get("source", ""),
         "chat_type": row.get("chat_type") or origin.get("chat_type", ""),
         "display_name": row.get("display_name") or origin.get("chat_name") or "",
         "origin": origin,
@@ -551,9 +560,8 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
     mcp = FastMCP(
         "hermes",
         instructions=(
-            "Hermes Agent messaging bridge. Use these tools to interact with "
-            "conversations across Telegram, Discord, Slack, WhatsApp, Signal, "
-            "Matrix, and other connected platforms."
+            "Hermes Agent Feishu bridge. Use these tools to inspect Feishu "
+            "conversations, read message history, and send messages."
         ),
     )
 
@@ -567,23 +575,25 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         limit: int = 50,
         search: Optional[str] = None,
     ) -> str:
-        """List active messaging conversations across connected platforms.
-
-        Returns conversations with their session keys (needed for messages_read),
-        platform, chat type, display name, and last activity time.
+        """List active Feishu conversations.
 
         Args:
-            platform: Filter by platform name (telegram, discord, slack, etc.)
+            platform: Optional Feishu filter; any other value returns no results.
             limit: Maximum number of conversations to return (default 50)
             search: Optional text to filter conversations by name
         """
         limit = _coerce_int(limit, default=50, minimum=1, maximum=200)
+        if platform and platform.lower() != "feishu":
+            return json.dumps({"count": 0, "conversations": []}, indent=2)
+
         entries = _load_sessions_index()
         conversations = []
 
         for key, entry in entries.items():
             origin = entry.get("origin", {})
             entry_platform = entry.get("platform") or origin.get("platform", "")
+            if entry_platform.lower() != "feishu":
+                continue
 
             if platform and entry_platform.lower() != platform.lower():
                 continue
@@ -828,20 +838,10 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         target: str,
         message: str,
     ) -> str:
-        """Send a message to a platform conversation.
+        """Send a message to a Feishu conversation.
 
-        The target format is "platform:chat_id" — same format used by the
-        channels_list tool. You can also use human-friendly channel names
-        that will be resolved automatically.
-
-        Examples:
-            target="telegram:6308981865"
-            target="discord:#general"
-            target="slack:#engineering"
-
-        Args:
-            target: Platform target in "platform:identifier" format
-            message: The message text to send
+        The target format is ``feishu:chat_id`` or ``feishu:chat_id:thread_id``.
+        Human-friendly Feishu channel names are resolved automatically.
         """
         if not target or not message:
             return json.dumps({"error": "Both target and message are required"})
@@ -861,14 +861,14 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
 
     @mcp.tool()
     def channels_list(platform: Optional[str] = None) -> str:
-        """List available messaging channels and targets across platforms.
-
-        Returns channels that you can send messages to. The target strings
-        returned here can be used directly with the messages_send tool.
+        """List available Feishu channels and targets.
 
         Args:
-            platform: Filter by platform name (telegram, discord, slack, etc.)
+            platform: Optional ``feishu`` filter; any other value returns no results.
         """
+        if platform and platform.lower() != "feishu":
+            return json.dumps({"count": 0, "channels": []}, indent=2)
+
         directory = _load_channel_directory()
         if not directory:
             entries = _load_sessions_index()
@@ -878,7 +878,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
                 origin = entry.get("origin", {})
                 p = entry.get("platform") or origin.get("platform", "")
                 chat_id = origin.get("chat_id", "")
-                if not p or not chat_id:
+                if p.lower() != "feishu" or not chat_id:
                     continue
                 if platform and p.lower() != platform.lower():
                     continue
@@ -896,7 +896,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
 
         channels = []
         for plat, entries_list in directory.get("platforms", {}).items():
-            if platform and plat.lower() != platform.lower():
+            if plat != "feishu":
                 continue
             if isinstance(entries_list, list):
                 for ch in entries_list:

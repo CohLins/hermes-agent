@@ -15,8 +15,13 @@ from gateway.platforms.base import MessageEvent
 from gateway.session import SessionSource
 
 
-def _make_event(text="/update", platform=Platform.TELEGRAM,
-                user_id="12345", chat_id="67890", thread_id=None):
+def _make_event(
+    text="/update",
+    platform=Platform.FEISHU,
+    user_id="ou_12345",
+    chat_id="oc_67890",
+    thread_id=None,
+):
     """Build a MessageEvent for testing."""
     source = SessionSource(
         platform=platform,
@@ -197,7 +202,7 @@ class TestHandleUpdateCommand:
     async def test_writes_pending_marker(self, tmp_path):
         """Writes .update_pending.json with correct platform and chat info."""
         runner = _make_runner()
-        event = _make_event(platform=Platform.TELEGRAM, chat_id="99999")
+        event = _make_event(platform=Platform.FEISHU, chat_id="oc_99999")
         event.message_id = "m-update"
 
         fake_root = tmp_path / "project"
@@ -218,8 +223,8 @@ class TestHandleUpdateCommand:
         pending_path = hermes_home / ".update_pending.json"
         assert pending_path.exists()
         data = json.loads(pending_path.read_text())
-        assert data["platform"] == "telegram"
-        assert data["chat_id"] == "99999"
+        assert data["platform"] == "feishu"
+        assert data["chat_id"] == "oc_99999"
         assert data["chat_type"] == "dm"
         assert data["message_id"] == "m-update"
         assert "timestamp" in data
@@ -230,9 +235,9 @@ class TestHandleUpdateCommand:
         """Persists thread_id so update notifications can route back to the thread."""
         runner = _make_runner()
         event = _make_event(
-            platform=Platform.TELEGRAM,
-            chat_id="99999",
-            thread_id="777",
+            platform=Platform.FEISHU,
+            chat_id="oc_99999",
+            thread_id="topic_777",
         )
         event.message_id = "m-update-thread"
 
@@ -252,7 +257,7 @@ class TestHandleUpdateCommand:
             await runner._handle_update_command(event)
 
         data = json.loads((hermes_home / ".update_pending.json").read_text())
-        assert data["thread_id"] == "777"
+        assert data["thread_id"] == "topic_777"
         assert data["message_id"] == "m-update-thread"
 
     @pytest.mark.asyncio
@@ -380,36 +385,11 @@ class TestHandleUpdateCommand:
 
 
 class TestUpdateCommandPlatformGate:
-    """Tests for the platform-allowlist gate at the top of
-    ``_handle_update_command``.  Built-in messaging platforms are listed in
-    ``_UPDATE_ALLOWED_PLATFORMS``; plugin-migrated platforms (discord,
-    mattermost, teams, …) are NOT in the frozenset and rely on the
-    registry's ``allow_update_command=True`` fallback.  Programmatic
-    interfaces (ACP, API server, webhooks) must be blocked.
-    """
-
-    @pytest.mark.asyncio
-    async def test_blocks_programmatic_interface(self, monkeypatch):
-        """``Platform.WEBHOOK`` is not a messaging platform and must be
-        blocked by the allowlist gate before any side effects fire."""
-        runner = _make_runner()
-        event = _make_event(platform=Platform.WEBHOOK)
-        monkeypatch.setenv("HERMES_MANAGED", "")
-
-        # Guard: platform gate must fire before any real subprocess spawn.
-        with patch("subprocess.Popen") as mock_popen:
-            result = await runner._handle_update_command(event)
-
-        # The exact rejection message comes from
-        # ``gateway.update.platform_not_messaging`` translation key.
-        assert "only available from messaging platforms" in result
-        mock_popen.assert_not_called()
+    """The retained Feishu/Local interactive surfaces can update; API server cannot."""
 
     @pytest.mark.asyncio
     async def test_blocks_api_server_platform(self, monkeypatch):
-        """``Platform.API_SERVER`` (programmatic, not messaging) must be
-        blocked by the allowlist gate.
-        """
+        """``Platform.API_SERVER`` is programmatic and must be blocked before side effects."""
         runner = _make_runner()
         event = _make_event(platform=Platform.API_SERVER)
         monkeypatch.setenv("HERMES_MANAGED", "")
@@ -421,103 +401,14 @@ class TestUpdateCommandPlatformGate:
         mock_popen.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_allows_plugin_platform_via_registry_fallback(self, monkeypatch):
-        """A plugin-migrated platform (DISCORD) is no longer in
-        ``_UPDATE_ALLOWED_PLATFORMS`` but must still pass the gate via
-        the registry's ``allow_update_command=True`` flag.
-
-        This test is the empirical guarantee that removing DISCORD from
-        the hardcoded frozenset does not regress the /update command for
-        Discord users.
-        """
+    async def test_allows_feishu_platform_in_allowlist(self, monkeypatch):
+        """Feishu is a retained interactive platform in the hardcoded allowlist."""
         from gateway.run import GatewayRunner
 
-        # Precondition: DISCORD is NOT in the hardcoded set anymore.
-        assert Platform.DISCORD not in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
-
-        # Make sure the plugin registry is populated so the fallback fires.
-        from hermes_cli.plugins import PluginManager
-        PluginManager().discover_and_load(force=True)
-        from gateway.platform_registry import platform_registry
-        discord_entry = platform_registry.get("discord")
-        assert discord_entry is not None
-        assert discord_entry.allow_update_command is True
+        assert Platform.FEISHU in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
 
         runner = _make_runner()
-        event = _make_event(platform=Platform.DISCORD)
-        monkeypatch.setenv("HERMES_MANAGED", "")
-
-        with patch("subprocess.Popen"):
-            result = await runner._handle_update_command(event)
-
-        # The gate must NOT have rejected us — anything other than the
-        # ``platform_not_messaging`` rejection string is acceptable here.
-        # Later steps may legitimately return success ("Starting Hermes
-        # update…") or fail for environment reasons.
-        assert "only available from messaging platforms" not in result
-
-    @pytest.mark.asyncio
-    async def test_allows_mattermost_via_registry_fallback(self, monkeypatch):
-        """Same as DISCORD: MATTERMOST is now plugin-migrated and not in
-        the hardcoded frozenset; the registry must keep /update working.
-        """
-        from gateway.run import GatewayRunner
-
-        assert Platform.MATTERMOST not in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
-
-        from hermes_cli.plugins import PluginManager
-        PluginManager().discover_and_load(force=True)
-        from gateway.platform_registry import platform_registry
-        mm_entry = platform_registry.get("mattermost")
-        assert mm_entry is not None
-        assert mm_entry.allow_update_command is True
-
-        runner = _make_runner()
-        event = _make_event(platform=Platform.MATTERMOST)
-        monkeypatch.setenv("HERMES_MANAGED", "")
-
-        with patch("subprocess.Popen"):
-            result = await runner._handle_update_command(event)
-
-        assert "only available from messaging platforms" not in result
-
-    @pytest.mark.asyncio
-    async def test_allows_homeassistant_via_registry_fallback(self, monkeypatch):
-        """Same as DISCORD/MATTERMOST: HOMEASSISTANT is now plugin-migrated
-        (PR #40709) and not in the hardcoded frozenset; the registry must
-        keep /update working via ``allow_update_command=True``.
-        """
-        from gateway.run import GatewayRunner
-
-        assert Platform.HOMEASSISTANT not in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
-
-        from hermes_cli.plugins import PluginManager
-        PluginManager().discover_and_load(force=True)
-        from gateway.platform_registry import platform_registry
-        ha_entry = platform_registry.get("homeassistant")
-        assert ha_entry is not None
-        assert ha_entry.allow_update_command is True
-
-        runner = _make_runner()
-        event = _make_event(platform=Platform.HOMEASSISTANT)
-        monkeypatch.setenv("HERMES_MANAGED", "")
-
-        with patch("subprocess.Popen"):
-            result = await runner._handle_update_command(event)
-
-        assert "only available from messaging platforms" not in result
-
-    @pytest.mark.asyncio
-    async def test_allows_builtin_platform_in_allowlist(self, monkeypatch):
-        """``Platform.TELEGRAM`` is in the hardcoded allowlist — gate
-        must pass without consulting the registry.
-        """
-        from gateway.run import GatewayRunner
-
-        assert Platform.TELEGRAM in GatewayRunner._UPDATE_ALLOWED_PLATFORMS
-
-        runner = _make_runner()
-        event = _make_event(platform=Platform.TELEGRAM)
+        event = _make_event(platform=Platform.FEISHU)
         monkeypatch.setenv("HERMES_MANAGED", "")
 
         with patch("subprocess.Popen"):
@@ -554,12 +445,12 @@ class TestSendUpdateNotification:
 
         pending_path = hermes_home / ".update_pending.json"
         pending_path.write_text(json.dumps({
-            "platform": "telegram", "chat_id": "67890", "user_id": "12345",
+            "platform": "feishu", "chat_id": "67890", "user_id": "12345",
         }))
         (hermes_home / ".update_output.txt").write_text("still running")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             result = await runner._send_update_notification()
@@ -577,13 +468,13 @@ class TestSendUpdateNotification:
 
         claimed_path = hermes_home / ".update_pending.claimed.json"
         claimed_path.write_text(json.dumps({
-            "platform": "telegram", "chat_id": "67890", "user_id": "12345",
+            "platform": "feishu", "chat_id": "67890", "user_id": "12345",
         }))
         (hermes_home / ".update_output.txt").write_text("done")
         (hermes_home / ".update_exit_code").write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             result = await runner._send_update_notification()
@@ -601,7 +492,7 @@ class TestSendUpdateNotification:
 
         # Write pending marker
         pending = {
-            "platform": "telegram",
+            "platform": "feishu",
             "chat_id": "67890",
             "user_id": "12345",
             "timestamp": "2026-03-04T21:00:00",
@@ -615,7 +506,7 @@ class TestSendUpdateNotification:
         # Mock the adapter
         mock_adapter = AsyncMock()
         mock_adapter.send = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
@@ -633,28 +524,25 @@ class TestSendUpdateNotification:
         hermes_home.mkdir()
 
         pending = {
-            "platform": "telegram",
-            "chat_id": "67890",
-            "chat_type": "dm",
-            "thread_id": "777",
+            "platform": "feishu",
+            "chat_id": "oc_67890",
+            "chat_type": "group",
+            "thread_id": "topic_777",
             "message_id": "m-update-thread",
-            "user_id": "12345",
+            "user_id": "ou_12345",
         }
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("done")
         (hermes_home / ".update_exit_code").write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
 
         assert mock_adapter.send.call_args.kwargs["metadata"] == {
-            "thread_id": "777",
-            "telegram_dm_topic_reply_fallback": True,
-            "direct_messages_topic_id": "777",
-            "telegram_reply_to_message_id": "m-update-thread",
+            "thread_id": "topic_777",
         }
 
     @pytest.mark.asyncio
@@ -664,7 +552,7 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "feishu", "chat_id": "111", "user_id": "222"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text(
             "\x1b[32m✓ Code updated!\x1b[0m\n\x1b[1mDone\x1b[0m"
@@ -672,7 +560,7 @@ class TestSendUpdateNotification:
         (hermes_home / ".update_exit_code").write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
@@ -688,13 +576,13 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "feishu", "chat_id": "111", "user_id": "222"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("x" * 5000)
         (hermes_home / ".update_exit_code").write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
@@ -712,13 +600,13 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "feishu", "chat_id": "111", "user_id": "222"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("Traceback: boom")
         (hermes_home / ".update_exit_code").write_text("1")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             result = await runner._send_update_notification()
@@ -735,13 +623,13 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "feishu", "chat_id": "111", "user_id": "222"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         # No .update_output.txt created
         (hermes_home / ".update_exit_code").write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
@@ -760,13 +648,13 @@ class TestSendUpdateNotification:
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
         pending_path.write_text(json.dumps({
-            "platform": "telegram", "chat_id": "111", "user_id": "222",
+            "platform": "feishu", "chat_id": "111", "user_id": "222",
         }))
         output_path.write_text("✓ Done")
         exit_code_path.write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
@@ -786,7 +674,7 @@ class TestSendUpdateNotification:
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
         pending_path.write_text(json.dumps({
-            "platform": "telegram", "chat_id": "111", "user_id": "222",
+            "platform": "feishu", "chat_id": "111", "user_id": "222",
         }))
         output_path.write_text("✓ Done")
         exit_code_path.write_text("0")
@@ -794,7 +682,7 @@ class TestSendUpdateNotification:
         # Adapter send raises
         mock_adapter = AsyncMock()
         mock_adapter.send.side_effect = RuntimeError("network error")
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._send_update_notification()
@@ -834,7 +722,7 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222"}
         pending_path = hermes_home / ".update_pending.json"
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
@@ -842,9 +730,9 @@ class TestSendUpdateNotification:
         output_path.write_text("Done")
         exit_code_path.write_text("0")
 
-        # Only telegram adapter available, but pending says discord
+        # Only the API server adapter is available, but pending targets Feishu.
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.API_SERVER: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             result = await runner._send_update_notification()
@@ -872,7 +760,7 @@ class TestSendUpdateNotification:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222"}
         pending_path = hermes_home / ".update_pending.json"
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
@@ -880,7 +768,7 @@ class TestSendUpdateNotification:
         output_path.write_text("✓ Update complete!")
         exit_code_path.write_text("0")
 
-        # First pass: target platform (discord) is still offline → defer.
+        # First pass: target platform (Feishu) is still offline → defer.
         with patch("gateway.run._hermes_home", hermes_home):
             first = await runner._send_update_notification()
 
@@ -889,7 +777,7 @@ class TestSendUpdateNotification:
 
         # Platform reconnects: the reconnect watcher adds the adapter back.
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.DISCORD: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             second = await runner._send_update_notification()

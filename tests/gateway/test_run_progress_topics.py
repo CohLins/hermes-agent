@@ -16,7 +16,7 @@ from gateway.session import SessionSource
 
 
 class ProgressCaptureAdapter(BasePlatformAdapter):
-    def __init__(self, platform=Platform.TELEGRAM):
+    def __init__(self, platform=Platform.FEISHU):
         super().__init__(PlatformConfig(enabled=True, token="***"), platform)
         self.sent = []
         self.edits = []
@@ -64,7 +64,7 @@ class SmallLimitProgressAdapter(ProgressCaptureAdapter):
 
     MAX_MESSAGE_LENGTH = 180
 
-    def __init__(self, platform=Platform.TELEGRAM):
+    def __init__(self, platform=Platform.FEISHU):
         super().__init__(platform=platform)
         self._next_id = 0
         self.oversized_edits = []
@@ -289,10 +289,10 @@ async def test_run_agent_progress_stays_in_originating_topic(monkeypatch, tmp_pa
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "fake"})
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="-1001",
+        platform=Platform.FEISHU,
+        chat_id="oc_1001",
         chat_type="group",
-        thread_id="17585",
+        thread_id="topic_17585",
     )
 
     result = await runner._run_agent(
@@ -301,20 +301,20 @@ async def test_run_agent_progress_stays_in_originating_topic(monkeypatch, tmp_pa
         history=[],
         source=source,
         session_id="sess-1",
-        session_key="agent:main:telegram:group:-1001:17585",
+        session_key="agent:main:feishu:group:oc_1001:topic_17585",
     )
 
     assert result["final_response"] == "done"
     assert adapter.sent == [
         {
-            "chat_id": "-1001",
+            "chat_id": "oc_1001",
             "content": '💻 Running pwd',
             "reply_to": None,
-            "metadata": {"thread_id": "17585"},
+            "metadata": {"thread_id": "topic_17585"},
         }
     ]
     assert adapter.edits
-    assert all(call["metadata"] == {"thread_id": "17585"} for call in adapter.typing)
+    assert all(call["metadata"] == {"thread_id": "topic_17585"} for call in adapter.typing)
 
 
 @pytest.mark.asyncio
@@ -335,10 +335,10 @@ async def test_run_agent_progress_edits_keep_originating_topic_metadata(monkeypa
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "fake"})
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="-1001",
+        platform=Platform.FEISHU,
+        chat_id="oc_1001",
         chat_type="group",
-        thread_id="17585",
+        thread_id="topic_17585",
     )
 
     result = await runner._run_agent(
@@ -347,104 +347,12 @@ async def test_run_agent_progress_edits_keep_originating_topic_metadata(monkeypa
         history=[],
         source=source,
         session_id="sess-progress-edit-topic",
-        session_key="agent:main:telegram:group:-1001:17585",
+        session_key="agent:main:feishu:group:oc_1001:topic_17585",
     )
 
     assert result["final_response"] == "done"
     assert adapter.edits
-    assert all(call["metadata"] == {"thread_id": "17585"} for call in adapter.edits)
-
-
-@pytest.mark.asyncio
-async def test_run_agent_progress_does_not_use_event_message_id_for_telegram_dm(monkeypatch, tmp_path):
-    """Telegram DM progress must not reuse event message id as thread metadata."""
-    monkeypatch.setenv("HERMES_TOOL_PROGRESS_MODE", "all")
-
-    fake_dotenv = types.ModuleType("dotenv")
-    fake_dotenv.load_dotenv = lambda *args, **kwargs: None
-    monkeypatch.setitem(sys.modules, "dotenv", fake_dotenv)
-
-    fake_run_agent = types.ModuleType("run_agent")
-    fake_run_agent.AIAgent = FakeAgent
-    monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
-
-    adapter = ProgressCaptureAdapter(platform=Platform.TELEGRAM)
-    runner = _make_runner(adapter)
-    gateway_run = importlib.import_module("gateway.run")
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-    monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
-
-    source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="12345",
-        chat_type="dm",
-        thread_id=None,
-    )
-
-    result = await runner._run_agent(
-        message="hello",
-        context_prompt="",
-        history=[],
-        source=source,
-        session_id="sess-2",
-        session_key="agent:main:telegram:dm:12345",
-        event_message_id="777",
-    )
-
-    assert result["final_response"] == "done"
-    assert adapter.sent
-    assert adapter.sent[0]["metadata"] is None
-    assert all(call["metadata"] is None for call in adapter.typing)
-
-
-@pytest.mark.asyncio
-async def test_run_agent_progress_uses_event_message_id_for_slack_dm(monkeypatch, tmp_path):
-    """Slack DM progress should keep event ts fallback threading."""
-    monkeypatch.setenv("HERMES_TOOL_PROGRESS_MODE", "all")
-    # Since PR #8006, Slack's built-in display tier sets tool_progress="off"
-    # by default. Override via config so this test still exercises the
-    # progress-callback path the Slack DM event_message_id threading depends on.
-    import yaml
-    (tmp_path / "config.yaml").write_text(
-        yaml.dump({"display": {"platforms": {"slack": {"tool_progress": "all"}}}}),
-        encoding="utf-8",
-    )
-
-    fake_dotenv = types.ModuleType("dotenv")
-    fake_dotenv.load_dotenv = lambda *args, **kwargs: None
-    monkeypatch.setitem(sys.modules, "dotenv", fake_dotenv)
-
-    fake_run_agent = types.ModuleType("run_agent")
-    fake_run_agent.AIAgent = FakeAgent
-    monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
-
-    adapter = ProgressCaptureAdapter(platform=Platform.SLACK)
-    runner = _make_runner(adapter)
-    gateway_run = importlib.import_module("gateway.run")
-    monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
-    monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
-
-    source = SessionSource(
-        platform=Platform.SLACK,
-        chat_id="D123",
-        chat_type="dm",
-        thread_id=None,
-    )
-
-    result = await runner._run_agent(
-        message="hello",
-        context_prompt="",
-        history=[],
-        source=source,
-        session_id="sess-3",
-        session_key="agent:main:slack:dm:D123",
-        event_message_id="1234567890.000001",
-    )
-
-    assert result["final_response"] == "done"
-    assert adapter.sent
-    assert adapter.sent[0]["metadata"] == {"thread_id": "1234567890.000001"}
-    assert all(call["metadata"] == {"thread_id": "1234567890.000001"} for call in adapter.typing)
+    assert all(call["metadata"] == {"thread_id": "topic_17585"} for call in adapter.edits)
 
 
 @pytest.mark.asyncio
@@ -548,8 +456,8 @@ def _run_long_preview_helper(monkeypatch, tmp_path, preview_length=0):
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="12345",
+        platform=Platform.FEISHU,
+        chat_id="oc_12345",
         chat_type="dm",
         thread_id=None,
     )
@@ -561,7 +469,7 @@ def _run_long_preview_helper(monkeypatch, tmp_path, preview_length=0):
             history=[],
             source=source,
             session_id="sess-trunc",
-            session_key="agent:main:telegram:dm:12345",
+            session_key="agent:main:feishu:dm:oc_12345",
         )
     )
     return adapter, result
@@ -741,10 +649,10 @@ async def _run_with_agent(
     session_id,
     pending_text=None,
     config_data=None,
-    platform=Platform.TELEGRAM,
-    chat_id="-1001",
+    platform=Platform.FEISHU,
+    chat_id="oc_1001",
     chat_type="group",
-    thread_id="17585",
+    thread_id="topic_17585",
     adapter_cls=ProgressCaptureAdapter,
 ):
     if config_data:
@@ -797,11 +705,11 @@ async def _run_with_agent(
 
 @pytest.mark.asyncio
 async def test_run_agent_rolls_progress_bubble_before_platform_limit(monkeypatch, tmp_path):
-    """Tool progress should start a second editable bubble before Telegram's limit.
+    """Tool progress should start a second editable bubble before its platform limit.
 
     Regression: once the first progress bubble grew past the platform limit,
-    the gateway kept trying to edit that same oversized full transcript.  The
-    Telegram adapter then split-and-sent a fresh continuation on every update,
+    the gateway kept trying to edit that same oversized full transcript.  A
+    transport may then split-and-send a fresh continuation on every update,
     causing a noisy trail of one-line messages instead of a new editable bubble.
     """
     adapter, result = await _run_with_agent(
@@ -944,26 +852,6 @@ async def test_run_agent_interim_commentary_works_with_tool_progress_off(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_run_agent_bluebubbles_uses_commentary_send_path_for_quick_replies(monkeypatch, tmp_path):
-    adapter, result = await _run_with_agent(
-        monkeypatch,
-        tmp_path,
-        CommentaryAgent,
-        session_id="sess-bluebubbles-commentary",
-        config_data={"display": {"interim_assistant_messages": True}},
-        platform=Platform.BLUEBUBBLES,
-        chat_id="iMessage;-;user@example.com",
-        chat_type="dm",
-        thread_id=None,
-        adapter_cls=NonEditingProgressCaptureAdapter,
-    )
-
-    assert result.get("already_sent") is not True
-    assert [call["content"] for call in adapter.sent] == ["I'll inspect the repo first."]
-    assert adapter.edits == []
-
-
-@pytest.mark.asyncio
 async def test_run_agent_previewed_final_marks_already_sent(monkeypatch, tmp_path):
     adapter, result = await _run_with_agent(
         monkeypatch,
@@ -990,30 +878,6 @@ async def test_run_agent_previewed_split_keeps_final_delivery_pending(monkeypatc
     assert result["session_id"] == "sess-split-child"
     assert result.get("already_sent") is not True
     assert [call["content"] for call in adapter.sent] == ["I'll inspect the repo first."]
-
-
-@pytest.mark.asyncio
-async def test_run_agent_matrix_streaming_omits_cursor(monkeypatch, tmp_path):
-    adapter, result = await _run_with_agent(
-        monkeypatch,
-        tmp_path,
-        StreamingRefineAgent,
-        session_id="sess-matrix-streaming",
-        config_data={
-            "display": {"tool_progress": "off", "interim_assistant_messages": False},
-            "streaming": {"enabled": True, "edit_interval": 0.01, "buffer_threshold": 1},
-        },
-        platform=Platform.MATRIX,
-        chat_id="!room:matrix.example.org",
-        chat_type="group",
-        thread_id="$thread",
-    )
-
-    assert result.get("already_sent") is True
-    all_text = [call["content"] for call in adapter.sent] + [call["content"] for call in adapter.edits]
-    assert all_text, "expected streamed Matrix content to be sent or edited"
-    assert all("▉" not in text for text in all_text)
-    assert any("Continuing to refine:" in text for text in all_text)
 
 
 class TransformedStreamAgent:
@@ -1055,10 +919,10 @@ async def test_transformed_response_edits_streamed_message_in_place(monkeypatch,
             "display": {"tool_progress": "off", "interim_assistant_messages": False},
             "streaming": {"enabled": True, "edit_interval": 0.01, "buffer_threshold": 1},
         },
-        platform=Platform.MATRIX,
-        chat_id="!room:matrix.example.org",
+        platform=Platform.FEISHU,
+        chat_id="oc_stream",
         chat_type="group",
-        thread_id="$thread",
+        thread_id="topic_stream",
         adapter_cls=MetadataEditProgressCaptureAdapter,
     )
 
@@ -1128,10 +992,10 @@ async def test_base_processing_releases_post_delivery_callback_after_main_send()
         )
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="-1001",
+        platform=Platform.FEISHU,
+        chat_id="oc_1001",
         chat_type="group",
-        thread_id="17585",
+        thread_id="topic_17585",
     )
     event = MessageEvent(
         text="hello",
@@ -1139,7 +1003,7 @@ async def test_base_processing_releases_post_delivery_callback_after_main_send()
         source=source,
         message_id="msg-1",
     )
-    session_key = "agent:main:telegram:group:-1001:17585"
+    session_key = "agent:main:feishu:group:oc_1001:topic_17585"
     adapter._active_sessions[session_key] = asyncio.Event()
     adapter._post_delivery_callbacks[session_key] = _post_delivery_cb
 
@@ -1174,10 +1038,10 @@ async def test_base_processing_stops_typing_before_hung_post_delivery_callback(
     adapter.stop_typing = _stop_typing
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="-1001",
+        platform=Platform.FEISHU,
+        chat_id="oc_1001",
         chat_type="group",
-        thread_id="17585",
+        thread_id="topic_17585",
     )
     event = MessageEvent(
         text="hello",
@@ -1185,7 +1049,7 @@ async def test_base_processing_stops_typing_before_hung_post_delivery_callback(
         source=source,
         message_id="msg-1",
     )
-    session_key = "agent:main:telegram:group:-1001:17585"
+    session_key = "agent:main:feishu:group:oc_1001:topic_17585"
     adapter._active_sessions[session_key] = asyncio.Event()
     adapter._post_delivery_callbacks[session_key] = _post_delivery_cb
 
@@ -1224,19 +1088,19 @@ async def test_run_agent_drops_tool_progress_after_generation_invalidation(monke
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
     import tools.terminal_tool  # noqa: F401 - register terminal tool metadata
 
-    adapter = ProgressCaptureAdapter(platform=Platform.DISCORD)
+    adapter = ProgressCaptureAdapter(platform=Platform.FEISHU)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.DISCORD,
-        chat_id="dm-1",
+        platform=Platform.FEISHU,
+        chat_id="ou_dm_1",
         chat_type="dm",
         thread_id=None,
     )
-    session_key = "agent:main:discord:dm:dm-1"
+    session_key = "agent:main:feishu:dm:ou_dm_1"
     runner._session_run_generation[session_key] = 1
 
     original_send = adapter.send
@@ -1285,19 +1149,19 @@ async def test_run_agent_drops_interim_commentary_after_generation_invalidation(
     fake_run_agent.AIAgent = DelayedInterimAgent
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
 
-    adapter = ProgressCaptureAdapter(platform=Platform.DISCORD)
+    adapter = ProgressCaptureAdapter(platform=Platform.FEISHU)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.DISCORD,
-        chat_id="dm-2",
+        platform=Platform.FEISHU,
+        chat_id="ou_dm_2",
         chat_type="dm",
         thread_id=None,
     )
-    session_key = "agent:main:discord:dm:dm-2"
+    session_key = "agent:main:feishu:dm:ou_dm_2"
     runner._session_run_generation[session_key] = 1
 
     original_send = adapter.send
@@ -1330,7 +1194,7 @@ async def test_run_agent_drops_interim_commentary_after_generation_invalidation(
 
 @pytest.mark.asyncio
 async def test_keep_typing_stops_immediately_when_interrupt_event_is_set():
-    adapter = ProgressCaptureAdapter(platform=Platform.DISCORD)
+    adapter = ProgressCaptureAdapter(platform=Platform.FEISHU)
     stop_event = asyncio.Event()
 
     task = asyncio.create_task(
@@ -1442,15 +1306,15 @@ async def test_terminal_progress_renders_fenced_code_block(monkeypatch, tmp_path
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
     import tools.terminal_tool  # noqa: F401 - register terminal emoji
 
-    adapter = CodeBlockProgressAdapter(platform=Platform.TELEGRAM)
+    adapter = CodeBlockProgressAdapter(platform=Platform.FEISHU)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="12345",
+        platform=Platform.FEISHU,
+        chat_id="ou_12345",
         chat_type="dm",
         thread_id=None,
     )
@@ -1461,7 +1325,7 @@ async def test_terminal_progress_renders_fenced_code_block(monkeypatch, tmp_path
         history=[],
         source=source,
         session_id="sess-terminal-code-block",
-        session_key="agent:main:telegram:dm:12345",
+        session_key="agent:main:feishu:dm:ou_12345",
     )
 
     assert result["final_response"] == "done"
@@ -1495,15 +1359,15 @@ async def test_terminal_progress_verbose_shows_full_command(monkeypatch, tmp_pat
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
     import tools.terminal_tool  # noqa: F401 - register terminal emoji
 
-    adapter = CodeBlockProgressAdapter(platform=Platform.TELEGRAM)
+    adapter = CodeBlockProgressAdapter(platform=Platform.FEISHU)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="12345",
+        platform=Platform.FEISHU,
+        chat_id="ou_12345",
         chat_type="dm",
         thread_id=None,
     )
@@ -1514,7 +1378,7 @@ async def test_terminal_progress_verbose_shows_full_command(monkeypatch, tmp_pat
         history=[],
         source=source,
         session_id="sess-terminal-code-block-verbose",
-        session_key="agent:main:telegram:dm:12345",
+        session_key="agent:main:feishu:dm:ou_12345",
     )
 
     assert result["final_response"] == "done"
@@ -1543,15 +1407,15 @@ async def test_terminal_progress_no_bash_block_in_verbose_mode(monkeypatch, tmp_
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
     import tools.terminal_tool  # noqa: F401 - register terminal emoji
 
-    adapter = CodeBlockProgressAdapter(platform=Platform.TELEGRAM)
+    adapter = CodeBlockProgressAdapter(platform=Platform.FEISHU)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="12345",
+        platform=Platform.FEISHU,
+        chat_id="ou_12345",
         chat_type="dm",
         thread_id=None,
     )
@@ -1562,7 +1426,7 @@ async def test_terminal_progress_no_bash_block_in_verbose_mode(monkeypatch, tmp_
         history=[],
         source=source,
         session_id="sess-terminal-verbose-no-bash",
-        session_key="agent:main:telegram:dm:12345",
+        session_key="agent:main:feishu:dm:ou_12345",
     )
 
     assert result["final_response"] == "done"
@@ -1605,15 +1469,15 @@ async def test_consecutive_terminal_progress_collapses_headers(monkeypatch, tmp_
     monkeypatch.setitem(sys.modules, "run_agent", fake_run_agent)
     import tools.terminal_tool  # noqa: F401 - register terminal emoji
 
-    adapter = CodeBlockProgressAdapter(platform=Platform.TELEGRAM)
+    adapter = CodeBlockProgressAdapter(platform=Platform.FEISHU)
     runner = _make_runner(adapter)
     gateway_run = importlib.import_module("gateway.run")
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
-        chat_id="12345",
+        platform=Platform.FEISHU,
+        chat_id="ou_12345",
         chat_type="dm",
         thread_id=None,
     )
@@ -1624,7 +1488,7 @@ async def test_consecutive_terminal_progress_collapses_headers(monkeypatch, tmp_
         history=[],
         source=source,
         session_id="sess-terminal-consecutive",
-        session_key="agent:main:telegram:dm:12345",
+        session_key="agent:main:feishu:dm:ou_12345",
     )
 
     assert result["final_response"] == "done"

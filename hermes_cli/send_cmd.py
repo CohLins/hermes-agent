@@ -1,26 +1,12 @@
-"""CLI subcommand: ``hermes send`` — pipe text from shell scripts to any
-configured messaging platform (Telegram, Discord, Slack, Signal, SMS, etc.).
+"""CLI subcommand: ``hermes send`` — deliver text or media to Feishu.
 
-This is a thin wrapper around ``tools.send_message_tool.send_message_tool``
-that exposes its functionality as a standalone CLI entry point so ops
-scripts, cron jobs, CI hooks, and monitoring daemons can reuse the gateway's
-already-configured credentials without having to reimplement each platform's
-REST API client.
+This is a thin wrapper around ``tools.send_message_tool.send_message_tool`` for
+scripts, cron jobs, CI hooks, and monitoring daemons that need to reuse the
+configured Feishu credentials without starting an agent loop.
 
-Design notes:
-
-* No LLM, no agent loop — the subcommand just resolves arguments, reads the
-  message body, calls the shared tool function, and prints/returns the
-  result. It is intentionally fast, cheap, and side-effect-only.
-* For platforms that send via bot token (Telegram, Discord, Slack, Signal,
-  SMS, WhatsApp-CloudAPI, …) no running gateway is required. The tool
-  talks directly to each platform's REST endpoint. For platforms that rely
-  on a persistent adapter connection (plugin platforms, Matrix in some
-  modes, …) a live gateway is needed; the underlying tool surfaces that
-  error to the caller.
-* Exit codes follow the classic Unix convention:
+Exit codes follow the classic Unix convention:
     0 — delivery (or list) succeeded
-    1 — delivery failed at the platform level
+    1 — delivery failed
     2 — usage / argument / config error (argparse already uses 2)
 """
 
@@ -65,10 +51,10 @@ def _read_message_body(
                 "message *body* (logs, reports, markdown).\n"
                 "To send an image/document/audio file as a native attachment, "
                 "reference it with MEDIA: in the message text instead:\n"
-                f'  hermes send --to telegram "MEDIA:{file_path}"\n'
-                f'  hermes send --to telegram "optional caption MEDIA:{file_path}"\n'
-                "Add [[as_document]] to deliver an image as an uncompressed file:\n"
-                f'  hermes send --to telegram "[[as_document]] MEDIA:{file_path}"',
+                f'  hermes send --to feishu "MEDIA:{file_path}"\n'
+                f'  hermes send --to feishu "optional text MEDIA:{file_path}"\n'
+                "Add [[as_document]] to deliver an image as a file:\n"
+                f'  hermes send --to feishu "[[as_document]] MEDIA:{file_path}"',
                 file=sys.stderr,
             )
             sys.exit(_USAGE_EXIT)
@@ -140,13 +126,7 @@ def _emit_result(
 
 
 def _list_targets(platform_filter: Optional[str], *, json_mode: bool) -> int:
-    """Print the channel directory (all configured targets across platforms).
-
-    Uses ``load_directory()`` for structured JSON output and
-    ``format_directory_for_display()`` for the human-readable rendering that
-    the send_message tool itself shows to the model — keeps the two surfaces
-    identical.
-    """
+    """Print the configured Feishu target directory."""
     try:
         from gateway.channel_directory import (
             format_directory_for_display,
@@ -162,27 +142,22 @@ def _list_targets(platform_filter: Optional[str], *, json_mode: bool) -> int:
         print(f"hermes send: failed to read channel directory: {exc}", file=sys.stderr)
         return _FAILURE_EXIT
 
-    platforms = dict(raw.get("platforms") or {})
+    platforms = {"feishu": list(raw.get("platforms", {}).get("feishu") or [])}
 
-    if platform_filter:
-        key = platform_filter.strip().lower()
-        filtered = {k: v for k, v in platforms.items() if k.lower() == key}
-        if not filtered:
-            print(
-                f"hermes send: no targets found for platform '{platform_filter}'. "
-                f"Configured: {', '.join(sorted(platforms)) or '(none)'}",
-                file=sys.stderr,
-            )
-            return _FAILURE_EXIT
-        platforms = filtered
+    if platform_filter and platform_filter.strip().lower() != "feishu":
+        print(
+            f"hermes send: Feishu is the only configured messaging platform; got '{platform_filter}'.",
+            file=sys.stderr,
+        )
+        return _FAILURE_EXIT
 
     if json_mode:
         print(json.dumps({"platforms": platforms}, indent=2, default=str))
         return _SUCCESS_EXIT
 
     if not any(platforms.values()):
-        print("No messaging platforms configured or no channels discovered yet.")
-        print("Set one up with `hermes gateway setup`, or run the gateway once so")
+        print("No Feishu targets discovered yet.")
+        print("Run the gateway once so channel discovery can populate")
         print("channel discovery can populate ~/.hermes/channel_directory.json.")
         return _SUCCESS_EXIT
 
@@ -220,7 +195,7 @@ def _load_hermes_env() -> None:
     1. ``load_dotenv(~/.hermes/.env)`` — brings bot tokens into the env.
     2. Bridge top-level simple values from ``~/.hermes/config.yaml`` into
        ``os.environ`` (without overriding existing env vars). This is where
-       ``TELEGRAM_HOME_CHANNEL`` and friends live when the user saved them
+       ``FEISHU_HOME_CHANNEL`` lives when the user saved it via
        via ``hermes config set``.
 
     See ``gateway/run.py`` for the canonical version of this bridge — we
@@ -305,8 +280,7 @@ def cmd_send(args: argparse.Namespace) -> None:
 
     # --list short-circuits everything else.
     if getattr(args, "list_targets", False):
-        # When `--list telegram` is used, argparse stores "telegram" in the
-        # `message` positional (since list_targets takes no argument).
+        # `--list feishu` is stored in the message positional slot.
         platform_filter = getattr(args, "message", None)
         exit_code = _list_targets(platform_filter, json_mode=getattr(args, "json", False))
         sys.exit(exit_code)
@@ -314,11 +288,11 @@ def cmd_send(args: argparse.Namespace) -> None:
     target = _resolve_target(getattr(args, "to", None))
     if not target:
         print(
-            "hermes send: --to PLATFORM[:channel[:thread]] is required\n"
+            "hermes send: --to feishu[:chat[:thread]] is required\n"
             "Examples:\n"
-            "  hermes send --to telegram \"hello\"\n"
-            "  hermes send --to discord:#ops --file report.md\n"
-            "  hermes send --list      # list available targets",
+            "  hermes send --to feishu \"hello\"\n"
+            "  hermes send --to feishu:oc_abc123 --file report.md\n"
+            "  hermes send --list      # list Feishu targets",
             file=sys.stderr,
         )
         sys.exit(_USAGE_EXIT)
@@ -345,11 +319,9 @@ def cmd_send(args: argparse.Namespace) -> None:
     # the full tool registry / gateway config stack.
     from tools.send_message_tool import send_message_tool
 
-    # send_message_tool auto-loads gateway config + env and routes to the
-    # appropriate platform adapter (bot-token path for Telegram/Discord/Slack/
-    # Signal/SMS/WhatsApp; live-adapter path for plugin platforms).
-    #
-    # It expects the standard tool-call dict and returns a JSON string.
+    # send_message_tool loads Feishu configuration and dispatches through the
+    # plugin's standalone sender. It expects the standard tool-call dict and
+    # returns a JSON string.
     tool_args = {
         "action": "send",
         "target": target,
@@ -374,23 +346,20 @@ def register_send_subparser(subparsers) -> argparse.ArgumentParser:
     """
     parser = subparsers.add_parser(
         "send",
-        help="Send a message to a configured platform (scripts, cron jobs, CI).",
+        help="Send a message to Feishu (scripts, cron jobs, CI).",
         description=(
-            "Pipe text from any shell script to any messaging platform Hermes "
-            "is already configured for. Reuses the gateway's platform "
-            "credentials (~/.hermes/.env + ~/.hermes/config.yaml) — no LLM, "
-            "no agent loop, no running gateway required for bot-token "
-            "platforms like Telegram/Discord/Slack/Signal."
+            "Pipe text from shell scripts to configured Feishu targets. "
+            "Reuses the gateway credentials (~/.hermes/.env + ~/.hermes/config.yaml) "
+            "without starting an LLM or agent loop."
         ),
         epilog=(
             "Examples:\n"
-            "  hermes send --to telegram \"deploy finished\"\n"
-            "  echo \"RAM 92%\" | hermes send --to telegram:-1001234567890\n"
-            "  hermes send --to discord:#ops --file /tmp/report.md\n"
-            "  hermes send --to slack:#eng --subject \"[CI]\" --file build.log\n"
-            "  hermes send --to telegram \"MEDIA:/tmp/chart.png\"   # send a media attachment\n"
-            "  hermes send --list                  # all platforms\n"
-            "  hermes send --list telegram         # filter by platform\n"
+            "  hermes send --to feishu \"deploy finished\"\n"
+            "  echo \"RAM 92%\" | hermes send --to feishu:oc_abc123\n"
+            "  hermes send --to feishu:oc_abc123 --file /tmp/report.md\n"
+            "  hermes send --to feishu \"MEDIA:/tmp/chart.png\"\n"
+            "  hermes send --list\n"
+            "  hermes send --list feishu\n"
             "\n"
             "Exit codes: 0 ok, 1 delivery/backend error, 2 usage error."
         ),
@@ -403,11 +372,9 @@ def register_send_subparser(subparsers) -> argparse.ArgumentParser:
         metavar="TARGET",
         default=None,
         help=(
-            "Delivery target. Format: 'platform' (home channel), "
-            "'platform:chat_id', 'platform:chat_id:thread_id', or "
-            "'platform:#channel-name'. Examples: telegram, "
-            "telegram:-1001234567890:17585, discord:#ops, slack:C0123ABCD, "
-            "signal:+15551234567."
+            "Delivery target: 'feishu' (home channel), 'feishu:chat_id', "
+            "'feishu:chat_id:thread_id', or 'feishu:channel-name'. Examples: "
+            "feishu, feishu:oc_abc123, feishu:oc_abc123:thread_456."
         ),
     )
 
@@ -446,7 +413,7 @@ def register_send_subparser(subparsers) -> argparse.ArgumentParser:
         dest="list_targets",
         action="store_true",
         default=False,
-        help="List available targets. Optional positional filter: `hermes send --list telegram`.",
+        help="List Feishu targets. Optional filter: `hermes send --list feishu`.",
     )
 
     parser.add_argument(

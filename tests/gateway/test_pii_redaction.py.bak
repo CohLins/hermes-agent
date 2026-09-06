@@ -1,9 +1,5 @@
 """Tests for PII redaction in gateway session context prompts."""
 
-from types import SimpleNamespace
-
-import pytest
-
 from gateway.session import (
     SessionContext,
     SessionSource,
@@ -68,72 +64,26 @@ def _make_context(
     )
 
 
-@pytest.fixture
-def registered_feishu_entry(monkeypatch):
-    from gateway.platform_registry import PlatformEntry, platform_registry
-    from plugins.platforms.feishu.adapter import register
-
-    monkeypatch.setattr(platform_registry, "_entries", {})
-    monkeypatch.setattr(platform_registry, "_deferred", {})
-
-    class _PluginContext:
-        def register_platform(self, **kwargs):
-            platform_registry.register(PlatformEntry(**kwargs))
-
-    register(_PluginContext())
-    entry = platform_registry.get("feishu")
-    assert entry is not None
-    assert entry.pii_safe is False
-    return entry
-
-
-@pytest.fixture
-def pii_safe_feishu(monkeypatch):
-    """Declare Feishu safe only within generic redaction algorithm tests."""
-    from gateway.platform_registry import platform_registry
-
-    monkeypatch.setattr(
-        platform_registry,
-        "get",
-        lambda name: SimpleNamespace(pii_safe=name == "feishu"),
-    )
-
-
 class TestBuildSessionContextPromptRedaction:
     def test_no_redaction_by_default(self):
         ctx = _make_context(user_id="user-123")
         prompt = build_session_context_prompt(ctx)
         assert "user-123" in prompt
 
-    def test_feishu_keeps_identifiers_when_not_declared_pii_safe(
-        self, registered_feishu_entry
-    ):
-        hc = {
-            Platform.FEISHU: HomeChannel(
-                platform=Platform.FEISHU,
-                chat_id="feishu:oc_99999",
-                name="Home Chat",
-            )
-        }
-        ctx = _make_context(user_id="ou_user-123", home_channels=hc)
-        prompt = build_session_context_prompt(ctx, redact_pii=True)
-
-        assert "ou_user-123" in prompt
-        assert "feishu:oc_99999" in prompt
-
-    def test_user_id_hashed_when_safe_platform_requests_redaction(self, pii_safe_feishu):
+    def test_user_id_hashed_when_redact_pii(self):
         ctx = _make_context(user_id="user-123")
         prompt = build_session_context_prompt(ctx, redact_pii=True)
         assert "user-123" not in prompt
-        assert _hash_sender_id("user-123") in prompt
+        assert "user_" in prompt  # hashed ID present
 
-    def test_user_name_not_redacted(self, pii_safe_feishu):
+    def test_user_name_not_redacted(self):
         ctx = _make_context(user_id="user-123", user_name="Alice")
         prompt = build_session_context_prompt(ctx, redact_pii=True)
         assert "Alice" in prompt
+        # user_id should not appear when user_name is present (name takes priority)
         assert "user-123" not in prompt
 
-    def test_home_channel_id_hashed_when_safe_platform_requests_redaction(self, pii_safe_feishu):
+    def test_home_channel_id_hashed(self):
         hc = {
             Platform.FEISHU: HomeChannel(
                 platform=Platform.FEISHU,
@@ -144,10 +94,10 @@ class TestBuildSessionContextPromptRedaction:
         ctx = _make_context(home_channels=hc)
         prompt = build_session_context_prompt(ctx, redact_pii=True)
         assert "99999" not in prompt
-        assert _hash_chat_id("feishu:oc_99999") in prompt
-        assert "Home Chat" in prompt
+        assert "feishu:" in prompt  # prefix preserved
+        assert "Home Chat" in prompt  # name not redacted
 
-    def test_home_channel_id_preserved_without_redaction(self, pii_safe_feishu):
+    def test_home_channel_id_preserved_without_redaction(self):
         hc = {
             Platform.FEISHU: HomeChannel(
                 platform=Platform.FEISHU,
@@ -159,19 +109,39 @@ class TestBuildSessionContextPromptRedaction:
         prompt = build_session_context_prompt(ctx, redact_pii=False)
         assert "99999" in prompt
 
-    def test_redaction_is_deterministic(self, pii_safe_feishu):
+    def test_redaction_is_deterministic(self):
         ctx = _make_context(user_id="+15551234567")
         prompt1 = build_session_context_prompt(ctx, redact_pii=True)
         prompt2 = build_session_context_prompt(ctx, redact_pii=True)
         assert prompt1 == prompt2
-        assert "+15551234567" not in prompt1
 
-    def test_different_ids_produce_different_hashes(self, pii_safe_feishu):
+    def test_different_ids_produce_different_hashes(self):
         ctx1 = _make_context(user_id="user-A")
         ctx2 = _make_context(user_id="user-B")
         p1 = build_session_context_prompt(ctx1, redact_pii=True)
         p2 = build_session_context_prompt(ctx2, redact_pii=True)
-        assert _hash_sender_id("user-A") in p1
-        assert _hash_sender_id("user-B") in p2
         assert p1 != p2
 
+    def test_discord_ids_not_redacted_even_with_flag(self):
+        """Discord needs real IDs for <@user_id> mentions."""
+        ctx = _make_context(user_id="123456789", platform=Platform.DISCORD)
+        prompt = build_session_context_prompt(ctx, redact_pii=True)
+        assert "123456789" in prompt
+
+    def test_whatsapp_ids_redacted(self):
+        ctx = _make_context(user_id="+15551234567", platform=Platform.WHATSAPP)
+        prompt = build_session_context_prompt(ctx, redact_pii=True)
+        assert "+15551234567" not in prompt
+        assert "user_" in prompt
+
+    def test_signal_ids_redacted(self):
+        ctx = _make_context(user_id="+15551234567", platform=Platform.SIGNAL)
+        prompt = build_session_context_prompt(ctx, redact_pii=True)
+        assert "+15551234567" not in prompt
+        assert "user_" in prompt
+
+    def test_slack_ids_not_redacted(self):
+        """Slack may need IDs for mentions too."""
+        ctx = _make_context(user_id="U12345ABC", platform=Platform.SLACK)
+        prompt = build_session_context_prompt(ctx, redact_pii=True)
+        assert "U12345ABC" in prompt

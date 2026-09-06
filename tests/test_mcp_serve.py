@@ -46,10 +46,10 @@ def sessions_dir(tmp_path):
 @pytest.fixture
 def sample_sessions():
     return {
-        "agent:main:telegram:dm:123456": {
-            "session_key": "agent:main:telegram:dm:123456",
+        "agent:main:feishu:dm:ou_alice": {
+            "session_key": "agent:main:feishu:dm:ou_alice",
             "session_id": "20260329_120000_abc123",
-            "platform": "telegram",
+            "platform": "feishu",
             "chat_type": "dm",
             "display_name": "Alice",
             "created_at": "2026-03-29T12:00:00",
@@ -58,58 +58,58 @@ def sample_sessions():
             "output_tokens": 2000,
             "total_tokens": 52000,
             "origin": {
-                "platform": "telegram",
-                "chat_id": "123456",
+                "platform": "feishu",
+                "chat_id": "ou_alice",
                 "chat_name": "Alice",
                 "chat_type": "dm",
-                "user_id": "123456",
+                "user_id": "ou_alice",
                 "user_name": "Alice",
                 "thread_id": None,
                 "chat_topic": None,
             },
         },
-        "agent:main:discord:group:789:456": {
-            "session_key": "agent:main:discord:group:789:456",
+        "agent:main:feishu:group:oc_research": {
+            "session_key": "agent:main:feishu:group:oc_research",
             "session_id": "20260329_100000_def456",
-            "platform": "discord",
+            "platform": "feishu",
             "chat_type": "group",
-            "display_name": "Bob",
+            "display_name": "Research",
             "created_at": "2026-03-29T10:00:00",
             "updated_at": "2026-03-29T13:00:00",
             "input_tokens": 30000,
             "output_tokens": 1000,
             "total_tokens": 31000,
             "origin": {
-                "platform": "discord",
-                "chat_id": "789",
-                "chat_name": "#general",
+                "platform": "feishu",
+                "chat_id": "oc_research",
+                "chat_name": "Research",
                 "chat_type": "group",
-                "user_id": "456",
+                "user_id": "ou_bob",
                 "user_name": "Bob",
                 "thread_id": None,
                 "chat_topic": None,
             },
         },
-        "agent:main:slack:group:C1234:U5678": {
-            "session_key": "agent:main:slack:group:C1234:U5678",
+        "agent:main:feishu:group:oc_research:thread_456": {
+            "session_key": "agent:main:feishu:group:oc_research:thread_456",
             "session_id": "20260328_090000_ghi789",
-            "platform": "slack",
+            "platform": "feishu",
             "chat_type": "group",
-            "display_name": "Carol",
+            "display_name": "Research / thread_456",
             "created_at": "2026-03-28T09:00:00",
             "updated_at": "2026-03-28T11:00:00",
             "input_tokens": 10000,
             "output_tokens": 500,
             "total_tokens": 10500,
             "origin": {
-                "platform": "slack",
-                "chat_id": "C1234",
-                "chat_name": "#engineering",
+                "platform": "feishu",
+                "chat_id": "oc_research",
+                "chat_name": "Research",
                 "chat_type": "group",
-                "user_id": "U5678",
+                "user_id": "ou_carol",
                 "user_name": "Carol",
-                "thread_id": None,
-                "chat_topic": None,
+                "thread_id": "thread_456",
+                "chat_topic": "thread_456",
             },
         },
     }
@@ -532,27 +532,34 @@ class TestE2EConversationsList:
         result = _run_tool(server, "conversations_list")
         assert result["count"] == 3
         platforms = {c["platform"] for c in result["conversations"]}
-        assert platforms == {"telegram", "discord", "slack"}
+        assert platforms == {"feishu"}
 
     def test_list_sorted_by_updated(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "conversations_list")
         keys = [c["session_key"] for c in result["conversations"]]
-        # Telegram (14:30) > Discord (13:00) > Slack (11:00)
-        assert keys[0] == "agent:main:telegram:dm:123456"
-        assert keys[1] == "agent:main:discord:group:789:456"
-        assert keys[2] == "agent:main:slack:group:C1234:U5678"
+        # Alice (14:30) > Research (13:00) > Research thread (11:00)
+        assert keys == [
+            "agent:main:feishu:dm:ou_alice",
+            "agent:main:feishu:group:oc_research",
+            "agent:main:feishu:group:oc_research:thread_456",
+        ]
 
     def test_filter_by_platform(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
-        result = _run_tool(server, "conversations_list", {"platform": "discord"})
-        assert result["count"] == 1
-        assert result["conversations"][0]["platform"] == "discord"
+        result = _run_tool(server, "conversations_list", {"platform": "feishu"})
+        assert result["count"] == 3
+        assert {row["platform"] for row in result["conversations"]} == {"feishu"}
+
+    def test_non_feishu_platform_returns_empty_list(self, mcp_server_e2e, _event_loop):
+        server, _ = mcp_server_e2e
+        result = _run_tool(server, "conversations_list", {"platform": "telegram"})
+        assert result == {"count": 0, "conversations": []}
 
     def test_filter_by_platform_case_insensitive(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
-        result = _run_tool(server, "conversations_list", {"platform": "TELEGRAM"})
-        assert result["count"] == 1
+        result = _run_tool(server, "conversations_list", {"platform": "FEISHU"})
+        assert result["count"] == 3
 
     def test_search_by_name(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
@@ -575,10 +582,10 @@ class TestE2EConversationGet:
     def test_get_existing(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "conversation_get",
-                          {"session_key": "agent:main:telegram:dm:123456"})
-        assert result["platform"] == "telegram"
+                          {"session_key": "agent:main:feishu:dm:ou_alice"})
+        assert result["platform"] == "feishu"
         assert result["display_name"] == "Alice"
-        assert result["chat_id"] == "123456"
+        assert result["chat_id"] == "ou_alice"
         assert result["input_tokens"] == 50000
 
     def test_get_nonexistent(self, mcp_server_e2e, _event_loop):
@@ -592,7 +599,7 @@ class TestE2EMessagesRead:
     def test_read_messages(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "messages_read",
-                          {"session_key": "agent:main:telegram:dm:123456"})
+                          {"session_key": "agent:main:feishu:dm:ou_alice"})
         assert result["count"] > 0
         # Should filter out tool messages — only user/assistant
         roles = {m["role"] for m in result["messages"]}
@@ -603,7 +610,7 @@ class TestE2EMessagesRead:
     def test_read_messages_content(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "messages_read",
-                          {"session_key": "agent:main:telegram:dm:123456"})
+                          {"session_key": "agent:main:feishu:dm:ou_alice"})
         contents = [m["content"] for m in result["messages"]]
         assert "Hello Alice!" in contents
         assert "Hi! How can I help?" in contents
@@ -611,7 +618,7 @@ class TestE2EMessagesRead:
     def test_read_messages_have_ids(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "messages_read",
-                          {"session_key": "agent:main:telegram:dm:123456"})
+                          {"session_key": "agent:main:feishu:dm:ou_alice"})
         for msg in result["messages"]:
             assert "id" in msg
             assert msg["id"]  # non-empty
@@ -619,7 +626,7 @@ class TestE2EMessagesRead:
     def test_read_with_limit(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "messages_read",
-                          {"session_key": "agent:main:telegram:dm:123456",
+                          {"session_key": "agent:main:feishu:dm:ou_alice",
                            "limit": 2})
         assert result["count"] == 2
 
@@ -635,7 +642,7 @@ class TestE2EAttachmentsFetch:
         server, _ = mcp_server_e2e
         # First get message IDs
         msgs = _run_tool(server, "messages_read",
-                        {"session_key": "agent:main:telegram:dm:123456"})
+                        {"session_key": "agent:main:feishu:dm:ou_alice"})
         # Find the message with MEDIA: tag
         media_msg = None
         for m in msgs["messages"]:
@@ -645,7 +652,7 @@ class TestE2EAttachmentsFetch:
         assert media_msg is not None, "Should have a message with MEDIA: tag"
 
         result = _run_tool(server, "attachments_fetch", {
-            "session_key": "agent:main:telegram:dm:123456",
+            "session_key": "agent:main:feishu:dm:ou_alice",
             "message_id": media_msg["id"],
         })
         assert result["count"] >= 1
@@ -655,7 +662,7 @@ class TestE2EAttachmentsFetch:
     def test_fetch_from_nonexistent_message(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "attachments_fetch", {
-            "session_key": "agent:main:telegram:dm:123456",
+            "session_key": "agent:main:feishu:dm:ou_alice",
             "message_id": "99999",
         })
         assert "error" in result
@@ -680,10 +687,10 @@ class TestE2EEventsPoll:
         from mcp_serve import QueueEvent
         server, bridge = mcp_server_e2e
         bridge._enqueue(QueueEvent(cursor=0, type="message",
-                                   session_key="agent:main:telegram:dm:123456",
+                                   session_key="agent:main:feishu:dm:ou_alice",
                                    data={"role": "user", "content": "Hello"}))
         bridge._enqueue(QueueEvent(cursor=0, type="message",
-                                   session_key="agent:main:telegram:dm:123456",
+                                   session_key="agent:main:feishu:dm:ou_alice",
                                    data={"role": "assistant", "content": "Hi"}))
 
         result = _run_tool(server, "events_poll")
@@ -757,7 +764,7 @@ class TestMCPToolParameterCoercion:
         result = _run_tool(
             server,
             "messages_read",
-            {"session_key": "agent:main:telegram:dm:123456", "limit": "2"},
+            {"session_key": "agent:main:feishu:dm:ou_alice", "limit": "2"},
         )
         assert result["count"] == 2
 
@@ -798,74 +805,68 @@ class TestE2EMessagesSend:
 
     def test_send_delegates_to_tool(self, mcp_server_e2e, _event_loop, monkeypatch):
         server, _ = mcp_server_e2e
-        mock = MagicMock(return_value=json.dumps({"success": True, "platform": "telegram"}))
+        mock = MagicMock(return_value=json.dumps({"success": True, "platform": "feishu"}))
         monkeypatch.setattr("tools.send_message_tool.send_message_tool", mock)
 
         result = _run_tool(server, "messages_send",
-                          {"target": "telegram:123456", "message": "Hello!"})
+                          {"target": "feishu:ou_alice", "message": "Hello!"})
         assert result["success"] is True
         mock.assert_called_once()
         call_args = mock.call_args[0][0]
         assert call_args["action"] == "send"
-        assert call_args["target"] == "telegram:123456"
+        assert call_args["target"] == "feishu:ou_alice"
 
 
 class TestE2EChannelsList:
     def test_channels_from_sessions(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "channels_list")
-        assert result["count"] == 3
+        assert result["count"] == 2
         targets = {c["target"] for c in result["channels"]}
-        assert "telegram:123456" in targets
-        assert "discord:789" in targets
-        assert "slack:C1234" in targets
+        assert targets == {
+            "feishu:ou_alice",
+            "feishu:oc_research",
+        }
 
-    def test_channels_platform_filter(self, mcp_server_e2e, _event_loop):
+    def test_channels_non_feishu_platform_filter_returns_empty(self, mcp_server_e2e, _event_loop):
         server, _ = mcp_server_e2e
         result = _run_tool(server, "channels_list", {"platform": "slack"})
-        assert result["count"] == 1
-        assert result["channels"][0]["target"] == "slack:C1234"
+        assert result == {"count": 0, "channels": []}
 
     def test_channels_with_directory(self, mcp_server_e2e, _event_loop, monkeypatch):
-        """Populated channel_directory.json should be unwrapped via the 'platforms' key.
-
-        Regression test for issue #21474: the writer wraps platforms under
-        {"updated_at": ..., "platforms": {...}} but the reader was iterating
-        directory.items() directly, so channels_list always returned 0.
-        """
+        """The wrapped directory payload exposes only Feishu targets."""
         import mcp_serve
+
         monkeypatch.setattr(mcp_serve, "_load_channel_directory", lambda: {
             "updated_at": "2026-05-07T12:00:00",
             "platforms": {
-                "telegram": [
-                    {"id": "123456", "name": "Alice", "type": "dm"},
-                    {"id": "-100999", "name": "Dev Group", "type": "group"},
+                "feishu": [
+                    {"id": "ou_alice", "name": "Alice", "type": "dm"},
+                    {"id": "oc_research:thread_456", "name": "Research / thread_456", "type": "group"},
                 ],
-                "discord": [
-                    {"id": "789", "name": "general", "type": "text"},
-                ],
+                "telegram": [{"id": "123456", "name": "stale", "type": "dm"}],
             },
         })
         server, _ = mcp_server_e2e
         result = _run_tool(server, "channels_list")
-        assert result["count"] == 3
-        targets = {c["target"] for c in result["channels"]}
-        assert targets == {"telegram:123456", "telegram:-100999", "discord:789"}
+        assert result["count"] == 2
+        assert {entry["target"] for entry in result["channels"]} == {
+            "feishu:ou_alice",
+            "feishu:oc_research:thread_456",
+        }
 
-    def test_channels_with_directory_platform_filter(self, mcp_server_e2e, _event_loop, monkeypatch):
-        """Platform filter should work against the wrapped 'platforms' payload."""
+    def test_channels_non_feishu_directory_filter_returns_empty(
+        self, mcp_server_e2e, _event_loop, monkeypatch
+    ):
         import mcp_serve
+
         monkeypatch.setattr(mcp_serve, "_load_channel_directory", lambda: {
             "updated_at": "2026-05-07T12:00:00",
-            "platforms": {
-                "telegram": [{"id": "123456", "name": "Alice", "type": "dm"}],
-                "discord": [{"id": "789", "name": "general", "type": "text"}],
-            },
+            "platforms": {"feishu": [{"id": "ou_alice", "name": "Alice", "type": "dm"}]},
         })
         server, _ = mcp_server_e2e
-        result = _run_tool(server, "channels_list", {"platform": "discord"})
-        assert result["count"] == 1
-        assert result["channels"][0]["target"] == "discord:789"
+        result = _run_tool(server, "channels_list", {"platform": "telegram"})
+        assert result == {"count": 0, "channels": []}
 
 
 class TestE2EPermissions:
@@ -1027,17 +1028,51 @@ class TestEdgeCases:
         assert mcp_serve._load_sessions_index() == {}
 
     def test_sessions_without_origin(self, sessions_dir, monkeypatch):
-        data = {"agent:main:telegram:dm:111": {
-            "session_key": "agent:main:telegram:dm:111",
+        data = {"agent:main:feishu:dm:ou_111": {
+            "session_key": "agent:main:feishu:dm:ou_111",
             "session_id": "20260329_120000_xyz",
-            "platform": "telegram",
+            "platform": "feishu",
             "updated_at": "2026-03-29T12:00:00",
         }}
         (sessions_dir / "sessions.json").write_text(json.dumps(data))
         import mcp_serve
         monkeypatch.setattr(mcp_serve, "_get_sessions_dir", lambda: sessions_dir)
         entries = mcp_serve._load_sessions_index()
-        assert entries["agent:main:telegram:dm:111"]["platform"] == "telegram"
+        assert entries["agent:main:feishu:dm:ou_111"]["platform"] == "feishu"
+
+    def test_state_db_gateway_source_uses_feishu_origin(self):
+        from mcp_serve import _is_feishu_session_entry, _row_to_index_entry
+
+        entry = _row_to_index_entry(
+            {
+                "id": "session-1",
+                "session_key": "agent:main:feishu:dm:ou_111",
+                "source": "gateway",
+                "origin_json": json.dumps({"platform": "feishu", "chat_id": "ou_111"}),
+            }
+        )
+
+        assert entry["platform"] == "feishu"
+        assert _is_feishu_session_entry(entry) is True
+
+    def test_sessions_index_excludes_removed_platforms(self, sessions_dir, monkeypatch):
+        data = {
+            "agent:main:feishu:dm:ou_111": {
+                "session_key": "agent:main:feishu:dm:ou_111",
+                "platform": "feishu",
+                "origin": {"platform": "feishu", "chat_id": "ou_111"},
+            },
+            "agent:main:telegram:dm:111": {
+                "session_key": "agent:main:telegram:dm:111",
+                "platform": "telegram",
+                "origin": {"platform": "telegram", "chat_id": "111"},
+            },
+        }
+        (sessions_dir / "sessions.json").write_text(json.dumps(data))
+        import mcp_serve
+        monkeypatch.setattr(mcp_serve, "_get_sessions_dir", lambda: sessions_dir)
+
+        assert set(mcp_serve._load_sessions_index()) == {"agent:main:feishu:dm:ou_111"}
 
     def test_bridge_start_stop(self):
         from mcp_serve import EventBridge
@@ -1070,14 +1105,14 @@ class TestEventBridgePollE2E:
 
         # Write sessions.json
         sessions_data = {
-            "agent:main:telegram:dm:poll_test": {
-                "session_key": "agent:main:telegram:dm:poll_test",
+            "agent:main:feishu:dm:poll_test": {
+                "session_key": "agent:main:feishu:dm:poll_test",
                 "session_id": session_id,
-                "platform": "telegram",
+                "platform": "feishu",
                 "chat_type": "dm",
                 "display_name": "PollTest",
                 "updated_at": "2026-03-29T15:00:05",
-                "origin": {"platform": "telegram", "chat_id": "poll_test"},
+                "origin": {"platform": "feishu", "chat_id": "poll_test"},
             }
         }
         (sessions_dir / "sessions.json").write_text(json.dumps(sessions_data))
@@ -1127,12 +1162,12 @@ class TestEventBridgePollE2E:
         db_path = tmp_path / "state.db"
 
         sessions_data = {
-            "agent:main:telegram:dm:skip": {
-                "session_key": "agent:main:telegram:dm:skip",
+            "agent:main:feishu:dm:skip": {
+                "session_key": "agent:main:feishu:dm:skip",
                 "session_id": session_id,
-                "platform": "telegram",
+                "platform": "feishu",
                 "updated_at": "2026-03-29T15:00:05",
-                "origin": {"platform": "telegram", "chat_id": "skip"},
+                "origin": {"platform": "feishu", "chat_id": "skip"},
             }
         }
         (sessions_dir / "sessions.json").write_text(json.dumps(sessions_data))
@@ -1179,12 +1214,12 @@ class TestEventBridgePollE2E:
         db_path = tmp_path / "state.db"
 
         sessions_data = {
-            "agent:main:telegram:dm:new": {
-                "session_key": "agent:main:telegram:dm:new",
+            "agent:main:feishu:dm:new": {
+                "session_key": "agent:main:feishu:dm:new",
                 "session_id": session_id,
-                "platform": "telegram",
+                "platform": "feishu",
                 "updated_at": "2026-03-29T15:00:05",
-                "origin": {"platform": "telegram", "chat_id": "new"},
+                "origin": {"platform": "feishu", "chat_id": "new"},
             }
         }
         (sessions_dir / "sessions.json").write_text(json.dumps(sessions_data))
@@ -1223,7 +1258,7 @@ class TestEventBridgePollE2E:
         os.utime(db_path, None)
 
         # Update sessions.json updated_at to trigger re-check
-        sessions_data["agent:main:telegram:dm:new"]["updated_at"] = "2026-03-29T15:00:10"
+        sessions_data["agent:main:feishu:dm:new"]["updated_at"] = "2026-03-29T15:00:10"
         (sessions_dir / "sessions.json").write_text(json.dumps(sessions_data))
 
         # Second poll — should detect the new message
@@ -1265,10 +1300,10 @@ class TestEventBridgePollE2E:
         monkeypatch.setattr(
             mcp_serve, "_load_sessions_index",
             lambda: {
-                "agent:main:telegram:dm:late": {
+                "agent:main:feishu:dm:late": {
                     "session_id": session_id,
-                    "platform": "telegram",
-                    "origin": {"platform": "telegram", "chat_id": "late"},
+                    "platform": "feishu",
+                    "origin": {"platform": "feishu", "chat_id": "late"},
                 }
             },
         )
@@ -1292,7 +1327,7 @@ class TestEventBridgePollE2E:
 
         result = bridge.poll_events(after_cursor=0)
         assert len(result["events"]) == 1
-        assert result["events"][0]["session_key"] == "agent:main:telegram:dm:late"
+        assert result["events"][0]["session_key"] == "agent:main:feishu:dm:late"
         assert result["events"][0]["content"].startswith("Hello from a freshly")
 
     def test_poll_interval_is_200ms(self):

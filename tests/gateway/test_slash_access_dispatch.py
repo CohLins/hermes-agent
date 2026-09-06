@@ -31,7 +31,7 @@ from gateway.session import SessionEntry, SessionSource, build_session_key
 
 def _make_source(
     *,
-    platform: Platform = Platform.DISCORD,
+    platform: Platform = Platform.FEISHU,
     user_id: str = "user1",
     chat_type: str = "dm",
     chat_id: str = "c1",
@@ -50,7 +50,7 @@ def _make_event(text: str, source: SessionSource) -> MessageEvent:
 
 
 def _make_runner(*, platform_extra: dict | None = None,
-                 platform: Platform = Platform.DISCORD):
+                 platform: Platform = Platform.FEISHU):
     from gateway.run import GatewayRunner
 
     runner = object.__new__(GatewayRunner)
@@ -74,7 +74,7 @@ def _make_runner(*, platform_extra: dict | None = None,
     )
     runner.session_store = MagicMock()
     session_entry = SessionEntry(
-        session_key="agent:main:discord:dm:c1",
+        session_key="agent:main:feishu:dm:c1",
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
@@ -544,21 +544,21 @@ async def test_dm_admin_blocked_in_group_with_separate_admin_list():
 
 
 # ---------------------------------------------------------------------------
-# Multi-platform isolation — gating on Discord doesn't leak to Telegram.
+# Multi-platform isolation — Feishu gating does not leak to API server.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_gating_isolated_per_platform():
-    """When Discord is gated and Telegram isn't, the same user_id on
-    Telegram must be unrestricted."""
+    """When Feishu is gated and API server is not, the same user remains
+    unrestricted through API server."""
     from gateway.run import GatewayRunner
     from gateway.config import GatewayConfig, Platform, PlatformConfig
 
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
         platforms={
-            Platform.DISCORD: PlatformConfig(
+            Platform.FEISHU: PlatformConfig(
                 enabled=True,
                 token="***",
                 extra={
@@ -566,14 +566,14 @@ async def test_gating_isolated_per_platform():
                     "user_allowed_commands": [],
                 },
             ),
-            Platform.TELEGRAM: PlatformConfig(
+            Platform.API_SERVER: PlatformConfig(
                 enabled=True, token="***", extra={}
             ),
         }
     )
     runner.adapters = {
-        Platform.DISCORD: MagicMock(send=AsyncMock()),
-        Platform.TELEGRAM: MagicMock(send=AsyncMock()),
+        Platform.FEISHU: MagicMock(send=AsyncMock()),
+        Platform.API_SERVER: MagicMock(send=AsyncMock()),
     }
     runner._voice_mode = {}
     runner.hooks = SimpleNamespace(
@@ -583,11 +583,11 @@ async def test_gating_isolated_per_platform():
     )
     runner.session_store = MagicMock()
     session_entry = SessionEntry(
-        session_key="agent:main:telegram:dm:c1",
+        session_key="agent:main:api_server:dm:c1",
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.API_SERVER,
         chat_type="dm",
         total_tokens=0,
     )
@@ -617,7 +617,7 @@ async def test_gating_isolated_per_platform():
     runner._capture_gateway_honcho_if_configured = lambda *args, **kwargs: None
     runner._emit_gateway_run_progress = AsyncMock()
 
-    # Same user_id on Telegram → must be unrestricted (Telegram has no admin list).
-    tg_src = _make_source(platform=Platform.TELEGRAM, user_id="999", chat_id="t1")
-    result = await runner._handle_message(_make_event("/whoami", tg_src))
+    # Same user through API server remains unrestricted because it has no admin list.
+    api_src = _make_source(platform=Platform.API_SERVER, user_id="999", chat_id="api1")
+    result = await runner._handle_message(_make_event("/whoami", api_src))
     assert "Tier: unrestricted" in result

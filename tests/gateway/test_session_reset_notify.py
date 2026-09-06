@@ -23,7 +23,7 @@ from gateway.session import SessionEntry, SessionSource, SessionStore
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_source(platform=Platform.TELEGRAM, chat_id="123", user_id="u1"):
+def _make_source(platform=Platform.FEISHU, chat_id="123", user_id="u1"):
     return SessionSource(
         platform=platform,
         chat_id=chat_id,
@@ -136,7 +136,7 @@ class TestShouldResetReason:
         entry = SessionEntry(
             session_key="test",
             session_id="s1",
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_type="dm",
             created_at=datetime.now() - timedelta(hours=2),
             updated_at=datetime.now() - timedelta(hours=1),

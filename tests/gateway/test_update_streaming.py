@@ -20,8 +20,12 @@ from gateway.platforms.base import MessageEvent
 from gateway.session import SessionSource
 
 
-def _make_event(text="/update", platform=Platform.TELEGRAM,
-                user_id="12345", chat_id="67890"):
+def _make_event(
+    text="/update",
+    platform=Platform.FEISHU,
+    user_id="ou_12345",
+    chat_id="oc_67890",
+):
     """Build a MessageEvent for testing."""
     source = SessionSource(
         platform=platform,
@@ -256,14 +260,14 @@ class TestWatchUpdateProgress:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
-                   "session_key": "agent:main:telegram:dm:111"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222",
+                   "session_key": "agent:main:feishu:dm:oc_111"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         # Write output
         (hermes_home / ".update_output.txt").write_text("→ Fetching updates...\n", encoding="utf-8")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         # Write exit code after a brief delay
         async def write_exit_code():
@@ -294,13 +298,13 @@ class TestWatchUpdateProgress:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
-                   "session_key": "agent:main:telegram:dm:111"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222",
+                   "session_key": "agent:main:feishu:dm:oc_111"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("output\n")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         # Write a prompt, then respond and finish
         async def simulate_prompt_cycle():
@@ -338,11 +342,11 @@ class TestWatchUpdateProgress:
         hermes_home.mkdir()
 
         pending = {
-            "platform": "telegram",
-            "chat_id": "111",
-            "thread_id": "777",
-            "user_id": "222",
-            "session_key": "agent:main:telegram:group:111:777",
+            "platform": "feishu",
+            "chat_id": "oc_111",
+            "thread_id": "topic_777",
+            "user_id": "ou_222",
+            "session_key": "agent:main:feishu:group:oc_111:topic_777",
         }
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("")
@@ -361,7 +365,7 @@ class TestWatchUpdateProgress:
                 return await self.prompt_calls(**kwargs)
 
         mock_adapter = _PromptCapableAdapter()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         async def finish_after_prompt():
             await asyncio.sleep(0.3)
@@ -379,7 +383,7 @@ class TestWatchUpdateProgress:
             await task
 
         assert mock_adapter.prompt_calls.call_args.kwargs["metadata"] == {
-            "thread_id": "777"
+            "thread_id": "topic_777"
         }
 
     @pytest.mark.asyncio
@@ -389,8 +393,8 @@ class TestWatchUpdateProgress:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
-                   "session_key": "agent:main:telegram:dm:111"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222",
+                   "session_key": "agent:main:feishu:dm:oc_111"}
         pending_path = hermes_home / ".update_pending.json"
         output_path = hermes_home / ".update_output.txt"
         exit_code_path = hermes_home / ".update_exit_code"
@@ -399,7 +403,7 @@ class TestWatchUpdateProgress:
         exit_code_path.write_text("0")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._watch_update_progress(
@@ -419,14 +423,14 @@ class TestWatchUpdateProgress:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
-                   "session_key": "agent:main:telegram:dm:111"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222",
+                   "session_key": "agent:main:feishu:dm:oc_111"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("error occurred\n")
         (hermes_home / ".update_exit_code").write_text("1")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         with patch("gateway.run._hermes_home", hermes_home):
             await runner._watch_update_progress(
@@ -451,25 +455,25 @@ class TestWatchUpdateProgress:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        # Target platform (discord) isn't connected yet; the update is finished.
-        pending = {"platform": "discord", "chat_id": "111", "user_id": "222"}
+        # Feishu is offline when the update has already finished.
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222"}
         pending_path = hermes_home / ".update_pending.json"
         pending_path.write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("done\n")
         (hermes_home / ".update_exit_code").write_text("0")
 
-        # Only telegram is connected at first.
-        runner.adapters = {Platform.TELEGRAM: AsyncMock()}
+        # API server is initially available, but it cannot deliver the Feishu result.
+        runner.adapters = {Platform.API_SERVER: AsyncMock()}
 
-        discord_adapter = AsyncMock()
+        feishu_adapter = AsyncMock()
 
-        async def reconnect_discord():
-            # The platform reconnect watcher registers discord mid-poll.
+        async def reconnect_feishu():
+            # The platform reconnect watcher registers Feishu mid-poll.
             await asyncio.sleep(0.3)
-            runner.adapters[Platform.DISCORD] = discord_adapter
+            runner.adapters[Platform.FEISHU] = feishu_adapter
 
         with patch("gateway.run._hermes_home", hermes_home):
-            task = asyncio.create_task(reconnect_discord())
+            task = asyncio.create_task(reconnect_feishu())
             await runner._watch_update_progress(
                 poll_interval=0.1,
                 stream_interval=0.2,
@@ -477,8 +481,8 @@ class TestWatchUpdateProgress:
             )
             await task
 
-        # The completion was delivered to discord once it reconnected...
-        discord_adapter.send.assert_called_once()
+        # The completion was delivered to Feishu once it reconnected...
+        feishu_adapter.send.assert_called_once()
         # ...and the markers are cleaned up after successful delivery.
         assert not pending_path.exists()
         assert not (hermes_home / ".update_exit_code").exists()
@@ -495,13 +499,13 @@ class TestWatchUpdateProgress:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
-                   "session_key": "agent:main:telegram:dm:111"}
+        pending = {"platform": "feishu", "chat_id": "oc_111", "user_id": "ou_222",
+                   "session_key": "agent:main:feishu:dm:oc_111"}
         (hermes_home / ".update_pending.json").write_text(json.dumps(pending))
         (hermes_home / ".update_output.txt").write_text("")
 
         mock_adapter = AsyncMock()
-        runner.adapters = {Platform.TELEGRAM: mock_adapter}
+        runner.adapters = {Platform.FEISHU: mock_adapter}
 
         # Write the prompt file up front (before the watcher starts).
         # The watcher should forward it exactly once, then delete it.
@@ -541,10 +545,10 @@ class TestWatchUpdateProgress:
         hermes_home.mkdir()
 
         pending = {
-            "platform": "telegram",
-            "chat_id": "111",
-            "user_id": "222",
-            "session_key": "agent:main:telegram:dm:111",
+            "platform": "feishu",
+            "chat_id": "oc_111",
+            "user_id": "ou_222",
+            "session_key": "agent:main:feishu:dm:oc_111",
         }
         prompt = {
             "prompt": "Restore local changes? [Y/n]",
@@ -557,7 +561,7 @@ class TestWatchUpdateProgress:
 
         runner1 = _make_runner()
         adapter1 = AsyncMock()
-        runner1.adapters = {Platform.TELEGRAM: adapter1}
+        runner1.adapters = {Platform.FEISHU: adapter1}
 
         with patch("gateway.run._hermes_home", hermes_home):
             watch1 = asyncio.create_task(
@@ -581,7 +585,7 @@ class TestWatchUpdateProgress:
 
             runner2 = _make_runner()
             adapter2 = AsyncMock()
-            runner2.adapters = {Platform.TELEGRAM: adapter2}
+            runner2.adapters = {Platform.FEISHU: adapter2}
 
             async def respond_and_finish():
                 await asyncio.sleep(0.2)
@@ -619,9 +623,9 @@ class TestUpdatePromptInterception:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        event = _make_event(text="y", chat_id="67890")
+        event = _make_event(text="y", chat_id="oc_67890")
         # The session key uses the full format from build_session_key
-        session_key = "agent:main:telegram:dm:67890"
+        session_key = "agent:main:feishu:dm:oc_67890"
         runner._update_prompt_pending[session_key] = True
         (hermes_home / ".update_prompt.json").write_text(json.dumps({"prompt": "test"}))
 
@@ -654,8 +658,8 @@ class TestUpdatePromptInterception:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        event = _make_event(text="/new", chat_id="67890")
-        session_key = "agent:main:telegram:dm:67890"
+        event = _make_event(text="/new", chat_id="oc_67890")
+        session_key = "agent:main:feishu:dm:oc_67890"
         runner._update_prompt_pending[session_key] = True
         runner._is_user_authorized = MagicMock(return_value=True)
         runner._session_key_for_source = MagicMock(return_value=session_key)
@@ -685,8 +689,8 @@ class TestUpdatePromptInterception:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        event = _make_event(text="/foobarbaz", chat_id="67890")
-        session_key = "agent:main:telegram:dm:67890"
+        event = _make_event(text="/foobarbaz", chat_id="oc_67890")
+        session_key = "agent:main:feishu:dm:oc_67890"
         runner._update_prompt_pending[session_key] = True
         runner._is_user_authorized = MagicMock(return_value=True)
         runner._session_key_for_source = MagicMock(return_value=session_key)
@@ -709,14 +713,14 @@ class TestUpdatePromptInterception:
         hermes_home = tmp_path / "hermes"
         hermes_home.mkdir()
 
-        event = _make_event(text="hello", chat_id="67890")
+        event = _make_event(text="hello", chat_id="oc_67890")
 
         # No pending prompt
         runner._is_user_authorized = MagicMock(return_value=True)
 
         # The message should flow through to normal processing;
         # we just verify it doesn't get intercepted
-        session_key = "agent:main:telegram:dm:67890"
+        session_key = "agent:main:feishu:dm:oc_67890"
         assert session_key not in runner._update_prompt_pending
 
 

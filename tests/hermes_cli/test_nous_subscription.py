@@ -235,7 +235,7 @@ def test_get_nous_subscription_features_does_not_treat_quoted_false_as_gateway_o
 
 
 def test_get_gateway_eligible_tools_ignores_quoted_false_opt_in(monkeypatch):
-    # Paid account: entitled to every category, including video.
+    # Paid users are offered every retained managed Tool Gateway feature.
     monkeypatch.setattr(
         ns, "get_nous_portal_account_info", lambda **kw: _account(logged_in=True, paid=True)
     )
@@ -245,7 +245,6 @@ def test_get_gateway_eligible_tools_ignores_quoted_false_opt_in(monkeypatch):
         lambda: {
             "web": True,
             "image_gen": False,
-            "video_gen": False,
             "tts": False,
             "stt": False,
             "browser": False,
@@ -261,7 +260,7 @@ def test_get_gateway_eligible_tools_ignores_quoted_false_opt_in(monkeypatch):
 
     assert "web" in has_direct
     assert "web" not in already_managed
-    assert set(unconfigured) == {"image_gen", "video_gen", "tts", "stt", "browser"}
+    assert set(unconfigured) == {"image_gen", "tts", "stt", "browser"}
 
 
 def _stub_browser_probes(monkeypatch, *, has_agent_browser, chromium, lightpanda=False):
@@ -373,7 +372,7 @@ def test_cloud_browserbase_available_without_local_chromium(monkeypatch):
 
 
 def test_get_gateway_eligible_tools_pool_excludes_video(monkeypatch):
-    """A free-tool-pool user is offered the covered tools but NOT video gen."""
+    """A free-tool-pool user is offered all retained covered tools."""
     monkeypatch.setattr(ns, "get_nous_portal_account_info", lambda **kw: _pool_account())
     monkeypatch.setattr(
         ns,
@@ -386,9 +385,6 @@ def test_get_gateway_eligible_tools_pool_excludes_video(monkeypatch):
     )
 
     assert set(unconfigured) == {"web", "image_gen", "tts", "stt", "browser"}
-    assert "video_gen" not in unconfigured
-    assert "video_gen" not in has_direct
-    assert "video_gen" not in already_managed
 
 
 def test_get_gateway_eligible_tools_empty_when_not_entitled(monkeypatch):
@@ -462,47 +458,6 @@ def test_prompt_enable_tool_gateway_writes_only_selected(monkeypatch):
     assert config["web"]["use_gateway"] is True
     assert config["image_gen"]["use_gateway"] is True
     assert "tts" not in config or config.get("tts", {}).get("use_gateway") is not True
-    assert "video_gen" not in config
-
-
-def test_prompt_enable_tool_gateway_paid_user_offers_video(monkeypatch):
-    """Paid users still get video gen in the offer (regression guard)."""
-    monkeypatch.setattr(
-        ns, "get_nous_portal_account_info", lambda **kw: _account(logged_in=True, paid=True)
-    )
-    monkeypatch.setattr(
-        ns,
-        "_get_gateway_direct_credentials",
-        lambda: {"web": False, "image_gen": False, "video_gen": False, "tts": False, "browser": False},
-    )
-    captured = _capture_checklist(monkeypatch, selected_idx=[])
-
-    ns.prompt_enable_tool_gateway({"model": {"provider": "nous"}})
-
-    blob = " ".join(captured["items"]).lower()
-    assert "video" in blob
-
-
-def test_apply_nous_managed_defaults_writes_video_gen_config(monkeypatch):
-    """apply_nous_managed_defaults must write video_gen.provider and
-    video_gen.use_gateway when a Nous subscriber selects video_gen
-    without a direct FAL_KEY."""
-    monkeypatch.setattr(ns, "managed_nous_tools_enabled", lambda **kw: True)
-    monkeypatch.delenv("FAL_KEY", raising=False)
-    monkeypatch.setattr(ns, "fal_key_is_configured", lambda: False)
-    monkeypatch.setattr(
-        ns, "get_nous_portal_account_info",
-        lambda **kw: _account(logged_in=True, paid=True),
-    )
-
-    config = {"model": {"provider": "nous"}}
-    changed = ns.apply_nous_managed_defaults(
-        config, enabled_toolsets=["video_gen"],
-    )
-
-    assert "video_gen" in changed
-    assert config["video_gen"]["provider"] == "fal"
-    assert config["video_gen"]["use_gateway"] is True
 
 
 def test_apply_nous_managed_defaults_writes_image_gen_config(monkeypatch):
@@ -526,8 +481,7 @@ def test_apply_nous_managed_defaults_writes_image_gen_config(monkeypatch):
 
 
 def test_apply_nous_managed_defaults_skips_fal_tools_when_key_present(monkeypatch):
-    """When FAL_KEY is set, apply_nous_managed_defaults should not touch
-    image_gen or video_gen config — the user's direct key takes precedence."""
+    """With FAL_KEY, image generation keeps the user's direct configuration."""
     monkeypatch.setattr(ns, "managed_nous_tools_enabled", lambda **kw: True)
     monkeypatch.setenv("FAL_KEY", "fal-direct-key")
     monkeypatch.setattr(ns, "fal_key_is_configured", lambda: True)
@@ -538,39 +492,12 @@ def test_apply_nous_managed_defaults_skips_fal_tools_when_key_present(monkeypatc
 
     config = {"model": {"provider": "nous"}}
     changed = ns.apply_nous_managed_defaults(
-        config, enabled_toolsets=["image_gen", "video_gen"],
+        config, enabled_toolsets=["image_gen"],
     )
 
     assert "image_gen" not in changed
     assert "video_gen" not in changed
     assert "image_gen" not in config
-    assert "video_gen" not in config
-
-
-def test_apply_nous_managed_defaults_preserves_existing_video_gen_section(monkeypatch):
-    """When video_gen config already exists as a dict, the function should
-    update it in-place rather than replacing it."""
-    monkeypatch.setattr(ns, "managed_nous_tools_enabled", lambda **kw: True)
-    monkeypatch.delenv("FAL_KEY", raising=False)
-    monkeypatch.setattr(ns, "fal_key_is_configured", lambda: False)
-    monkeypatch.setattr(
-        ns, "get_nous_portal_account_info",
-        lambda **kw: _account(logged_in=True, paid=True),
-    )
-
-    config = {
-        "model": {"provider": "nous"},
-        "video_gen": {"model": "pixverse-v6"},
-    }
-    changed = ns.apply_nous_managed_defaults(
-        config, enabled_toolsets=["video_gen"],
-    )
-
-    assert "video_gen" in changed
-    assert config["video_gen"]["provider"] == "fal"
-    assert config["video_gen"]["use_gateway"] is True
-    # Pre-existing keys should be preserved
-    assert config["video_gen"]["model"] == "pixverse-v6"
 
 
 # ---------------------------------------------------------------------------

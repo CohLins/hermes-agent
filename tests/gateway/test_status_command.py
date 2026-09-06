@@ -13,7 +13,7 @@ from gateway.platforms.base import MessageEvent
 from gateway.session import SessionEntry, SessionSource, build_session_key
 
 
-def _make_source(platform: Platform = Platform.TELEGRAM) -> SessionSource:
+def _make_source(platform: Platform = Platform.FEISHU) -> SessionSource:
     return SessionSource(
         platform=platform,
         user_id="u1",
@@ -23,7 +23,7 @@ def _make_source(platform: Platform = Platform.TELEGRAM) -> SessionSource:
     )
 
 
-def _make_event(text: str, *, platform: Platform = Platform.TELEGRAM) -> MessageEvent:
+def _make_event(text: str, *, platform: Platform = Platform.FEISHU) -> MessageEvent:
     return MessageEvent(
         text=text,
         source=_make_source(platform),
@@ -31,7 +31,7 @@ def _make_event(text: str, *, platform: Platform = Platform.TELEGRAM) -> Message
     )
 
 
-def _make_runner(session_entry: SessionEntry, *, platform: Platform = Platform.TELEGRAM):
+def _make_runner(session_entry: SessionEntry, *, platform: Platform = Platform.FEISHU):
     from gateway.run import GatewayRunner
 
     runner = object.__new__(GatewayRunner)
@@ -81,7 +81,7 @@ async def test_status_command_reports_running_agent_without_interrupt(monkeypatc
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=321,
     )
@@ -114,7 +114,7 @@ async def test_status_command_includes_session_title_when_present():
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=321,
     )
@@ -137,7 +137,7 @@ async def test_status_command_reads_token_totals_from_session_db():
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=0,  # SessionEntry never gets written to — always 0.
     )
@@ -165,7 +165,7 @@ async def test_status_command_tokens_zero_when_session_db_row_missing():
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=999,  # This should be ignored.
     )
@@ -184,7 +184,7 @@ async def test_status_command_includes_live_agent_model_and_context():
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=0,
     )
@@ -223,7 +223,7 @@ async def test_status_command_includes_persisted_model_and_context_when_agent_no
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=0,
         last_prompt_tokens=24_000,
@@ -255,7 +255,7 @@ async def test_status_command_includes_cached_agent_model_and_context():
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=0,
     )
@@ -284,7 +284,7 @@ async def test_agents_command_reports_active_agents_and_processes(monkeypatch):
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=0,
     )
@@ -327,7 +327,7 @@ async def test_tasks_alias_routes_to_agents_command(monkeypatch):
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
         total_tokens=0,
     )
@@ -354,7 +354,7 @@ async def test_handle_message_persists_agent_token_counts(monkeypatch):
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
@@ -388,18 +388,18 @@ async def test_handle_message_persists_agent_token_counts(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_first_run_slack_home_channel_onboarding_uses_parent_command(monkeypatch):
+async def test_first_run_feishu_home_channel_onboarding_keeps_direct_command(monkeypatch):
     import gateway.run as gateway_run
 
     session_entry = SessionEntry(
-        session_key=build_session_key(_make_source(Platform.SLACK)),
+        session_key=build_session_key(_make_source(Platform.FEISHU)),
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.SLACK,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
-    runner = _make_runner(session_entry, platform=Platform.SLACK)
+    runner = _make_runner(session_entry, platform=Platform.FEISHU)
     runner.session_store.load_transcript.return_value = []
     runner.session_store.has_any_sessions.return_value = False
     runner._run_agent = AsyncMock(
@@ -415,62 +415,18 @@ async def test_first_run_slack_home_channel_onboarding_uses_parent_command(monke
         }
     )
 
-    monkeypatch.delenv("SLACK_HOME_CHANNEL", raising=False)
+    monkeypatch.delenv("FEISHU_HOME_CHANNEL", raising=False)
     monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
     monkeypatch.setattr(
         "agent.model_metadata.get_model_context_length",
         lambda *_args, **_kwargs: 100000,
     )
 
-    result = await runner._handle_message(_make_event("hello", platform=Platform.SLACK))
+    result = await runner._handle_message(_make_event("hello", platform=Platform.FEISHU))
 
     assert result == "ok"
-    runner.adapters[Platform.SLACK].send.assert_awaited_once()
-    onboarding = runner.adapters[Platform.SLACK].send.await_args.args[1]
-    assert "/hermes sethome" in onboarding
-    assert "Type /sethome" not in onboarding
-
-
-@pytest.mark.asyncio
-async def test_first_run_non_slack_home_channel_onboarding_keeps_direct_command(monkeypatch):
-    import gateway.run as gateway_run
-
-    session_entry = SessionEntry(
-        session_key=build_session_key(_make_source(Platform.TELEGRAM)),
-        session_id="sess-1",
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
-        chat_type="dm",
-    )
-    runner = _make_runner(session_entry, platform=Platform.TELEGRAM)
-    runner.session_store.load_transcript.return_value = []
-    runner.session_store.has_any_sessions.return_value = False
-    runner._run_agent = AsyncMock(
-        return_value={
-            "final_response": "ok",
-            "messages": [],
-            "tools": [],
-            "history_offset": 0,
-            "last_prompt_tokens": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "model": "openai/test-model",
-        }
-    )
-
-    monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
-    monkeypatch.setattr(gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"})
-    monkeypatch.setattr(
-        "agent.model_metadata.get_model_context_length",
-        lambda *_args, **_kwargs: 100000,
-    )
-
-    result = await runner._handle_message(_make_event("hello", platform=Platform.TELEGRAM))
-
-    assert result == "ok"
-    runner.adapters[Platform.TELEGRAM].send.assert_awaited_once()
-    onboarding = runner.adapters[Platform.TELEGRAM].send.await_args.args[1]
+    runner.adapters[Platform.FEISHU].send.assert_awaited_once()
+    onboarding = runner.adapters[Platform.FEISHU].send.await_args.args[1]
     assert "Type /sethome" in onboarding
 
 
@@ -483,13 +439,13 @@ async def test_handle_message_discards_stale_result_after_session_invalidation(m
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
     runner.session_store.load_transcript.return_value = [{"role": "user", "content": "earlier"}]
     session_key = session_entry.session_key
-    runner.adapters[Platform.TELEGRAM]._post_delivery_callbacks = {session_key: object()}
+    runner.adapters[Platform.FEISHU]._post_delivery_callbacks = {session_key: object()}
 
     async def _stale_result(**kwargs):
         runner._invalidate_session_run_generation(kwargs["session_key"], reason="test_stale_result")
@@ -517,7 +473,7 @@ async def test_handle_message_discards_stale_result_after_session_invalidation(m
     assert result is None
     runner.session_store.append_to_transcript.assert_not_called()
     runner.session_store.update_session.assert_not_called()
-    assert session_key not in runner.adapters[Platform.TELEGRAM]._post_delivery_callbacks
+    assert session_key not in runner.adapters[Platform.FEISHU]._post_delivery_callbacks
 
 
 @pytest.mark.asyncio
@@ -550,14 +506,14 @@ async def test_handle_message_stale_result_keeps_newer_generation_callback(monke
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
     runner.session_store.load_transcript.return_value = [{"role": "user", "content": "earlier"}]
     session_key = session_entry.session_key
     adapter = _Adapter()
-    runner.adapters[Platform.TELEGRAM] = adapter
+    runner.adapters[Platform.FEISHU] = adapter
 
     async def _stale_result(**kwargs):
         # Simulate a newer run claiming the callback slot before the stale run unwinds.
@@ -610,7 +566,7 @@ async def test_status_command_bypasses_active_session_guard():
 
     # Concrete subclass to avoid abstract method errors
     class _ConcreteAdapter(BasePlatformAdapter):
-        platform = Platform.TELEGRAM
+        platform = Platform.FEISHU
 
         async def connect(self, *, is_reconnect: bool = False): pass
         async def disconnect(self): pass
@@ -618,7 +574,7 @@ async def test_status_command_bypasses_active_session_guard():
         async def get_chat_info(self, chat_id): return {}
 
     platform_config = PlatformConfig(enabled=True, token="***")
-    adapter = _ConcreteAdapter(platform_config, Platform.TELEGRAM)
+    adapter = _ConcreteAdapter(platform_config, Platform.FEISHU)
     adapter.set_message_handler(fake_handler)
 
     sent = []
@@ -657,7 +613,7 @@ async def test_profile_command_reports_custom_root_profile(monkeypatch, tmp_path
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
@@ -687,7 +643,7 @@ async def test_profile_command_reports_source_stamped_profile(monkeypatch, tmp_p
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
@@ -718,7 +674,7 @@ async def test_profile_command_ignores_stamp_when_multiplexing_off(monkeypatch, 
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
@@ -746,7 +702,7 @@ async def test_profile_command_unstamped_source_unchanged(monkeypatch, tmp_path)
         session_id="sess-1",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner = _make_runner(session_entry)
@@ -777,7 +733,7 @@ async def test_post_delivery_callback_generation_snapshot_happens_after_bind():
     fired = []
 
     class _ConcreteAdapter(BasePlatformAdapter):
-        platform = Platform.TELEGRAM
+        platform = Platform.FEISHU
 
         async def connect(self, *, is_reconnect: bool = False): pass
         async def disconnect(self): pass
@@ -785,7 +741,7 @@ async def test_post_delivery_callback_generation_snapshot_happens_after_bind():
         async def get_chat_info(self, chat_id): return {}
 
     adapter = _ConcreteAdapter(
-        PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM
+        PlatformConfig(enabled=True, token="***"), Platform.FEISHU
     )
 
     async def fake_handler(event):
