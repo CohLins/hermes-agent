@@ -36,7 +36,7 @@ def isolated_registry(tmp_path, monkeypatch):
 def _runner(adapter, *, origins=None):
     runner = object.__new__(GatewayRunner)
     runner._running = True
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
     runner.session_store = SimpleNamespace(
         _ensure_loaded=lambda: None,
         _entries=origins or {},
@@ -279,7 +279,7 @@ def test_async_completion_uses_canonical_origin_routing(monkeypatch, isolated_re
     isolated.put(event)
 
     canonical = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="canonical-chat",
         chat_type="group",
         thread_id="canonical-topic",

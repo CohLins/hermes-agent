@@ -32,7 +32,7 @@ async def test_safe_disconnect_calls_adapter_disconnect(bare_runner):
     adapter = MagicMock()
     adapter.disconnect = AsyncMock(return_value=None)
 
-    await bare_runner._safe_adapter_disconnect(adapter, Platform.TELEGRAM)
+    await bare_runner._safe_adapter_disconnect(adapter, Platform.FEISHU)
 
     adapter.disconnect.assert_awaited_once()
 
@@ -43,7 +43,7 @@ async def test_safe_disconnect_emits_start_and_result_events(bare_runner, caplog
     adapter.disconnect = AsyncMock(return_value=None)
 
     with caplog.at_level(logging.INFO, logger="gateway.run"):
-        await bare_runner._safe_adapter_disconnect(adapter, Platform.TELEGRAM)
+        await bare_runner._safe_adapter_disconnect(adapter, Platform.FEISHU)
 
     events = "\n".join(record.getMessage() for record in caplog.records)
     assert "event=platform.disconnect.start" in events
@@ -60,7 +60,7 @@ async def test_safe_disconnect_swallows_exceptions(bare_runner):
     adapter.disconnect = AsyncMock(side_effect=RuntimeError("partial init"))
 
     # Must NOT raise
-    await bare_runner._safe_adapter_disconnect(adapter, Platform.TELEGRAM)
+    await bare_runner._safe_adapter_disconnect(adapter, Platform.FEISHU)
 
     adapter.disconnect.assert_awaited_once()
 

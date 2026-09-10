@@ -33,7 +33,7 @@ class _FakeAdapter:
 
 def _make_source(chat_id: str = "chat-1") -> SessionSource:
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id=chat_id,
         chat_type="dm",
         user_id=f"user-{chat_id}",
@@ -51,10 +51,10 @@ def _make_event(text: str = "hello", chat_id: str = "chat-1") -> MessageEvent:
 def _make_runner(max_concurrent_sessions: int | None = None) -> GatewayRunner:
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")},
+        platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="***")},
         max_concurrent_sessions=max_concurrent_sessions,
     )
-    runner.adapters = {Platform.TELEGRAM: _FakeAdapter()}
+    runner.adapters = {Platform.FEISHU: _FakeAdapter()}
     runner._running_agents = {}
     runner._running_agents_ts = {}
     runner._active_session_leases = {}
@@ -136,7 +136,7 @@ def test_existing_active_session_uses_busy_handling_at_limit(monkeypatch):
         result = asyncio.run(runner._handle_message(event))
 
     assert result is None
-    assert runner.adapters[Platform.TELEGRAM]._pending_messages[session_key] is event
+    assert runner.adapters[Platform.FEISHU]._pending_messages[session_key] is event
 
 
 def test_new_session_can_start_after_active_session_released(monkeypatch):

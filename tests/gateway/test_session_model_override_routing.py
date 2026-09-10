@@ -142,10 +142,10 @@ async def test_background_task_prefers_session_override_over_global_runtime(monk
     adapter.send = AsyncMock()
     adapter.extract_media = MagicMock(return_value=([], "ok"))
     adapter.extract_images = MagicMock(return_value=([], "ok"))
-    runner.adapters[Platform.TELEGRAM] = adapter
+    runner.adapters[Platform.FEISHU] = adapter
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         user_id="12345",
         chat_id="67890",
         user_name="testuser",

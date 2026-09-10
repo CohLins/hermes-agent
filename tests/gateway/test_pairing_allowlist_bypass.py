@@ -48,7 +48,7 @@ def _make_runner(*, paired: bool):
 
 def _make_source(user_id: str = "pairme", chat_type: str = "dm"):
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="123",
         chat_type=chat_type,
         user_id=user_id,

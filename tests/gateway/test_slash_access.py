@@ -172,7 +172,7 @@ class TestPolicyForSource:
     def test_no_platform_config_returns_disabled(self):
         cfg = GatewayConfig(platforms={})
         src = SessionSource(
-            platform=Platform.DISCORD, chat_id="42", chat_type="dm", user_id="7"
+            platform=Platform.FEISHU, chat_id="42", chat_type="dm", user_id="7"
         )
         p = policy_for_source(cfg, src)
         assert p.enabled is False
@@ -180,7 +180,7 @@ class TestPolicyForSource:
     def test_dm_chat_type_resolves_to_dm_scope(self):
         cfg = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={
                         "allow_admin_from": ["111"],
@@ -192,7 +192,7 @@ class TestPolicyForSource:
             }
         )
         dm_src = SessionSource(
-            platform=Platform.DISCORD, chat_id="A", chat_type="dm", user_id="111"
+            platform=Platform.FEISHU, chat_id="A", chat_type="dm", user_id="111"
         )
         p = policy_for_source(cfg, dm_src)
         assert p.is_admin("111") is True
@@ -203,7 +203,7 @@ class TestPolicyForSource:
     def test_group_chat_type_resolves_to_group_scope(self):
         cfg = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={
                         "allow_admin_from": ["111"],
@@ -215,7 +215,7 @@ class TestPolicyForSource:
             }
         )
         grp_src = SessionSource(
-            platform=Platform.DISCORD, chat_id="G", chat_type="group", user_id="222"
+            platform=Platform.FEISHU, chat_id="G", chat_type="group", user_id="222"
         )
         p = policy_for_source(cfg, grp_src)
         assert p.is_admin("222") is True
@@ -229,7 +229,7 @@ class TestPolicyForSource:
         # Discord channels and threads are group-scoped, not DM-scoped.
         cfg = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={
                         "allow_admin_from": ["111"],
@@ -240,7 +240,7 @@ class TestPolicyForSource:
         )
         for ct in ("group", "channel", "thread", "supergroup"):
             src = SessionSource(
-                platform=Platform.DISCORD, chat_id="X", chat_type=ct, user_id="222"
+                platform=Platform.FEISHU, chat_id="X", chat_type=ct, user_id="222"
             )
             p = policy_for_source(cfg, src)
             assert p.is_admin("222") is True, f"chat_type={ct} should map to group scope"
@@ -250,17 +250,17 @@ class TestPolicyForSource:
         # Group has admin list, DM does not → DM gating disabled, group active.
         cfg = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={"group_allow_admin_from": ["222"]},
                 )
             }
         )
         dm_src = SessionSource(
-            platform=Platform.DISCORD, chat_id="A", chat_type="dm", user_id="999"
+            platform=Platform.FEISHU, chat_id="A", chat_type="dm", user_id="999"
         )
         grp_src = SessionSource(
-            platform=Platform.DISCORD, chat_id="G", chat_type="group", user_id="999"
+            platform=Platform.FEISHU, chat_id="G", chat_type="group", user_id="999"
         )
         dm_p = policy_for_source(cfg, dm_src)
         grp_p = policy_for_source(cfg, grp_src)
@@ -273,15 +273,15 @@ class TestPolicyForSource:
         # Discord has gating, Telegram doesn't → Telegram is unaffected.
         cfg = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={"allow_admin_from": ["111"]},
                 ),
-                Platform.TELEGRAM: PlatformConfig(enabled=True, extra={}),
+                Platform.FEISHU: PlatformConfig(enabled=True, extra={}),
             }
         )
         tg_src = SessionSource(
-            platform=Platform.TELEGRAM, chat_id="T", chat_type="dm", user_id="999"
+            platform=Platform.FEISHU, chat_id="T", chat_type="dm", user_id="999"
         )
         p = policy_for_source(cfg, tg_src)
         assert p.enabled is False

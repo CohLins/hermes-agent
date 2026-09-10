@@ -36,7 +36,7 @@ def hermes_home(tmp_path, monkeypatch):
 
 def _make_source() -> SessionSource:
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         user_id="u1",
         chat_id="c1",
         user_name="tester",
@@ -67,7 +67,7 @@ def _make_runner_with_adapter(session_id: str = None):
 
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")},
+        platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="***")},
     )
     runner.adapters = {}
     runner._running_agents = {}
@@ -83,7 +83,7 @@ def _make_runner_with_adapter(session_id: str = None):
         session_id=session_id or f"goal-sess-{uuid.uuid4().hex[:8]}",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
 
@@ -92,7 +92,7 @@ def _make_runner_with_adapter(session_id: str = None):
     runner.session_store._generate_session_key.return_value = build_session_key(src)
 
     adapter = _RecordingAdapter()
-    runner.adapters[Platform.TELEGRAM] = adapter
+    runner.adapters[Platform.FEISHU] = adapter
     return runner, adapter, session_entry, src
 
 
@@ -209,7 +209,7 @@ async def test_goal_verdict_survives_adapter_without_send(hermes_home):
         def __init__(self):
             self._pending_messages: dict = {}
 
-    runner.adapters[Platform.TELEGRAM] = _NoSendAdapter()
+    runner.adapters[Platform.FEISHU] = _NoSendAdapter()
 
     with patch("hermes_cli.goals.judge_goal", return_value=("done", "ok", False, None)):
         # must not raise

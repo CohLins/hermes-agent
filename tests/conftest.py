@@ -106,13 +106,6 @@ collect_ignore_glob = [
     "tools/test_video_generation_*.py",
     "tools/test_whatsapp_*.py",
     "tools/test_x_search_tool.py",
-    "test_yuanbao_integration.py",
-    "test_yuanbao_markdown.py",
-    "test_yuanbao_pipeline.py",
-    "test_yuanbao_reconnect_set_active.py",
-    "test_yuanbao_shutdown.py",
-    "test_yuanbao_proto.py",
-    "gateway/test_yuanbao_media_ssrf.py",
 ]
 
 

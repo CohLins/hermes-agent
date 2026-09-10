@@ -126,9 +126,9 @@ def test_non_upstream_adapter_still_default_denies(monkeypatch):
     authorization_is_upstream=False and no env allowlist must remain denied.
     """
     _clear_auth_env(monkeypatch)
-    runner, _ = _make_runner(platform=Platform.DISCORD, authorization_is_upstream=False)
+    runner, _ = _make_runner(platform=Platform.FEISHU, authorization_is_upstream=False)
     src = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         user_id="123",
         chat_id="456",
         user_name="someone",
@@ -142,13 +142,13 @@ def test_upstream_authz_helper_false_for_unknown_platform(monkeypatch):
     _clear_auth_env(monkeypatch)
     runner, _ = _make_runner(platform=Platform.RELAY, authorization_is_upstream=True)
     # A platform with no registered adapter must not be treated as upstream-authz.
-    assert runner._adapter_authorization_is_upstream(Platform.DISCORD) is False
+    assert runner._adapter_authorization_is_upstream(Platform.FEISHU) is False
     assert runner._adapter_authorization_is_upstream(None) is False
 
 
 # ---------------------------------------------------------------------------
 # The underlying-platform regression: a relay *message* inbound carries the
-# UNDERLYING platform (source.platform == Platform.DISCORD), not Platform.RELAY,
+# UNDERLYING platform (source.platform == Platform.FEISHU), not Platform.RELAY,
 # because the connector's wire payload sets platform="discord" and
 # ws_transport._event_from_wire maps it straight onto SessionSource. The relay
 # adapter is registered ONLY under Platform.RELAY, so keying upstream-authz off
@@ -172,7 +172,7 @@ def test_relay_message_with_underlying_discord_platform_authorized(monkeypatch):
     _clear_auth_env(monkeypatch)
     runner, _ = _make_runner(platform=Platform.RELAY, authorization_is_upstream=True)
     src = SessionSource(
-        platform=Platform.DISCORD,  # underlying platform off the wire
+        platform=Platform.FEISHU,  # underlying platform off the wire
         user_id="267171776755269633",
         chat_id="1400724139874058314",
         user_name="rewbs",
@@ -193,7 +193,7 @@ def test_direct_discord_event_not_authorized_by_relay_presence(monkeypatch):
     _clear_auth_env(monkeypatch)
     runner, _ = _make_runner(platform=Platform.RELAY, authorization_is_upstream=True)
     src = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         user_id="999",
         chat_id="456",
         user_name="direct_discord_user",
@@ -211,7 +211,7 @@ def test_relay_delivery_marker_is_wire_invisible():
     off the wire.
     """
     src = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         chat_id="1",
         user_id="2",
         delivered_via_upstream_relay=True,
@@ -241,7 +241,7 @@ def test_event_from_wire_sets_relay_delivery_marker():
             },
         }
     )
-    assert event.source.platform is Platform.DISCORD
+    assert event.source.platform is Platform.FEISHU
     assert event.source.delivered_via_upstream_relay is True
 
 

@@ -24,11 +24,11 @@ from gateway.config import (
 
 class TestHomeChannelRoundtrip:
     def test_to_dict_from_dict(self):
-        hc = HomeChannel(platform=Platform.DISCORD, chat_id="999", name="general")
+        hc = HomeChannel(platform=Platform.FEISHU, chat_id="999", name="general")
         d = hc.to_dict()
         restored = HomeChannel.from_dict(d)
 
-        assert restored.platform == Platform.DISCORD
+        assert restored.platform == Platform.FEISHU
         assert restored.chat_id == "999"
         assert restored.name == "general"
 
@@ -39,7 +39,7 @@ class TestPlatformConfigRoundtrip:
             enabled=True,
             token="tok_123",
             home_channel=HomeChannel(
-                platform=Platform.TELEGRAM,
+                platform=Platform.FEISHU,
                 chat_id="555",
                 name="Home",
             ),
@@ -186,15 +186,15 @@ class TestGetConnectedPlatforms:
     def test_returns_enabled_with_token(self):
         config = GatewayConfig(
             platforms={
-                Platform.TELEGRAM: PlatformConfig(enabled=True, token="t"),
-                Platform.DISCORD: PlatformConfig(enabled=False, token="d"),
-                Platform.SLACK: PlatformConfig(enabled=True),  # no token
+                Platform.FEISHU: PlatformConfig(enabled=True, token="t"),
+                Platform.FEISHU: PlatformConfig(enabled=False, token="d"),
+                Platform.FEISHU: PlatformConfig(enabled=True),  # no token
             },
         )
         connected = config.get_connected_platforms()
-        assert Platform.TELEGRAM in connected
-        assert Platform.DISCORD not in connected
-        assert Platform.SLACK not in connected
+        assert Platform.FEISHU in connected
+        assert Platform.FEISHU not in connected
+        assert Platform.FEISHU not in connected
 
     def test_empty_platforms(self):
         config = GatewayConfig()
@@ -203,13 +203,13 @@ class TestGetConnectedPlatforms:
     def test_dingtalk_recognised_via_extras(self):
         config = GatewayConfig(
             platforms={
-                Platform.DINGTALK: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={"client_id": "cid", "client_secret": "sec"},
                 ),
             },
         )
-        assert Platform.DINGTALK in config.get_connected_platforms()
+        assert Platform.FEISHU in config.get_connected_platforms()
 
     def test_dingtalk_recognised_via_env_vars(self, monkeypatch):
         """DingTalk configured via env vars (no extras) should still be
@@ -219,31 +219,31 @@ class TestGetConnectedPlatforms:
         monkeypatch.setenv("DINGTALK_CLIENT_SECRET", "env_sec")
         config = GatewayConfig(
             platforms={
-                Platform.DINGTALK: PlatformConfig(enabled=True, extra={}),
+                Platform.FEISHU: PlatformConfig(enabled=True, extra={}),
             },
         )
-        assert Platform.DINGTALK in config.get_connected_platforms()
+        assert Platform.FEISHU in config.get_connected_platforms()
 
     def test_dingtalk_missing_creds_not_connected(self, monkeypatch):
         monkeypatch.delenv("DINGTALK_CLIENT_ID", raising=False)
         monkeypatch.delenv("DINGTALK_CLIENT_SECRET", raising=False)
         config = GatewayConfig(
             platforms={
-                Platform.DINGTALK: PlatformConfig(enabled=True, extra={}),
+                Platform.FEISHU: PlatformConfig(enabled=True, extra={}),
             },
         )
-        assert Platform.DINGTALK not in config.get_connected_platforms()
+        assert Platform.FEISHU not in config.get_connected_platforms()
 
     def test_dingtalk_disabled_not_connected(self):
         config = GatewayConfig(
             platforms={
-                Platform.DINGTALK: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=False,
                     extra={"client_id": "cid", "client_secret": "sec"},
                 ),
             },
         )
-        assert Platform.DINGTALK not in config.get_connected_platforms()
+        assert Platform.FEISHU not in config.get_connected_platforms()
 
 
 class TestSessionResetPolicy:
@@ -319,10 +319,10 @@ class TestGatewayConfigRoundtrip:
     def test_full_roundtrip(self):
         config = GatewayConfig(
             platforms={
-                Platform.TELEGRAM: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     token="tok_123",
-                    home_channel=HomeChannel(Platform.TELEGRAM, "123", "Home"),
+                    home_channel=HomeChannel(Platform.FEISHU, "123", "Home"),
                 ),
             },
             reset_triggers=["/new"],
@@ -334,8 +334,8 @@ class TestGatewayConfigRoundtrip:
         d = config.to_dict()
         restored = GatewayConfig.from_dict(d)
 
-        assert Platform.TELEGRAM in restored.platforms
-        assert restored.platforms[Platform.TELEGRAM].token == "tok_123"
+        assert Platform.FEISHU in restored.platforms
+        assert restored.platforms[Platform.FEISHU].token == "tok_123"
         assert restored.reset_triggers == ["/new"]
         assert restored.quick_commands == {"limits": {"type": "exec", "command": "echo ok"}}
         assert restored.group_sessions_per_user is False
@@ -409,7 +409,7 @@ class TestGatewayConfigRoundtrip:
         config = GatewayConfig(
             unauthorized_dm_behavior="ignore",
             platforms={
-                Platform.WHATSAPP: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={"unauthorized_dm_behavior": "pair"},
                 ),
@@ -419,26 +419,26 @@ class TestGatewayConfigRoundtrip:
         restored = GatewayConfig.from_dict(config.to_dict())
 
         assert restored.unauthorized_dm_behavior == "ignore"
-        assert restored.platforms[Platform.WHATSAPP].extra["unauthorized_dm_behavior"] == "pair"
+        assert restored.platforms[Platform.FEISHU].extra["unauthorized_dm_behavior"] == "pair"
 
     def test_email_defaults_to_ignore_for_unauthorized_dm_behavior(self):
         config = GatewayConfig(
-            platforms={Platform.EMAIL: PlatformConfig(enabled=True)},
+            platforms={Platform.FEISHU: PlatformConfig(enabled=True)},
         )
 
-        assert config.get_unauthorized_dm_behavior(Platform.EMAIL) == "ignore"
+        assert config.get_unauthorized_dm_behavior(Platform.FEISHU) == "ignore"
 
     def test_email_can_opt_into_pairing_for_unauthorized_dm_behavior(self):
         config = GatewayConfig(
             platforms={
-                Platform.EMAIL: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     extra={"unauthorized_dm_behavior": "pair"},
                 ),
             },
         )
 
-        assert config.get_unauthorized_dm_behavior(Platform.EMAIL) == "pair"
+        assert config.get_unauthorized_dm_behavior(Platform.FEISHU) == "pair"
 
     def test_from_dict_coerces_quoted_false_always_log_local(self):
         restored = GatewayConfig.from_dict({"always_log_local": "false"})
@@ -458,8 +458,8 @@ class TestGatewayConfigRoundtrip:
             }
         )
 
-        assert Platform.TELEGRAM not in restored.platforms
-        assert restored.platforms[Platform.DISCORD].enabled is True
+        assert Platform.FEISHU not in restored.platforms
+        assert restored.platforms[Platform.FEISHU].enabled is True
         assert restored.default_reset_policy.mode == SessionResetPolicy().mode
         assert restored.reset_by_type == {}
         assert restored.reset_by_platform == {}
@@ -467,15 +467,15 @@ class TestGatewayConfigRoundtrip:
 
     def test_get_notice_delivery_defaults_to_public(self):
         config = GatewayConfig(
-            platforms={Platform.SLACK: PlatformConfig(enabled=True, token="***")}
+            platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="***")}
         )
 
-        assert config.get_notice_delivery(Platform.SLACK) == "public"
+        assert config.get_notice_delivery(Platform.FEISHU) == "public"
 
     def test_get_notice_delivery_honors_platform_override(self):
         config = GatewayConfig(
             platforms={
-                Platform.SLACK: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     token="***",
                     extra={"notice_delivery": "private"},
@@ -483,7 +483,7 @@ class TestGatewayConfigRoundtrip:
             }
         )
 
-        assert config.get_notice_delivery(Platform.SLACK) == "private"
+        assert config.get_notice_delivery(Platform.FEISHU) == "private"
 
 
 class TestLoadGatewayConfig:
@@ -586,7 +586,7 @@ class TestLoadGatewayConfig:
         config = load_gateway_config()
 
         assert (
-            config.platforms[Platform.SLACK].typing_status_text
+            config.platforms[Platform.FEISHU].typing_status_text
             == "is pouncing… 🐾"
         )
 
@@ -607,7 +607,7 @@ class TestLoadGatewayConfig:
         config = load_gateway_config()
 
         assert (
-            config.platforms[Platform.SLACK].typing_status_text == "chasing yarn…"
+            config.platforms[Platform.FEISHU].typing_status_text == "chasing yarn…"
         )
 
     def test_multiplex_profiles_from_nested_gateway_section(self, tmp_path, monkeypatch):
@@ -656,7 +656,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        extra = config.platforms[Platform.DISCORD].extra
+        extra = config.platforms[Platform.FEISHU].extra
         assert extra["websocket_liveness_interval_seconds"] == 17
         assert extra["websocket_liveness_failure_threshold"] == 4
         assert extra["websocket_heartbeat_ack_max_age_seconds"] == 75
@@ -895,7 +895,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.DISCORD].extra["allow_from"] == [
+        assert config.platforms[Platform.FEISHU].extra["allow_from"] == [
             "123456789012345678",
             "999888777666555444",
         ]
@@ -922,7 +922,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.DISCORD].extra["allow_from"] == [
+        assert config.platforms[Platform.FEISHU].extra["allow_from"] == [
             "123456789012345678",
         ]
         assert os.environ.get("DISCORD_ALLOWED_USERS") == "123456789012345678"
@@ -968,11 +968,11 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        telegram = config.platforms[Platform.TELEGRAM]
+        telegram = config.platforms[Platform.FEISHU]
         assert telegram.enabled is True
         assert telegram.token == "nested-token"
         assert telegram.home_channel == HomeChannel(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="123",
             name="Nested Home",
         )
@@ -1003,7 +1003,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        telegram = config.platforms[Platform.TELEGRAM]
+        telegram = config.platforms[Platform.FEISHU]
         assert telegram.enabled is True
         assert telegram.token == "top-token"
         assert telegram.extra["reply_prefix"] == "top"
@@ -1035,7 +1035,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        telegram = config.platforms[Platform.TELEGRAM]
+        telegram = config.platforms[Platform.FEISHU]
         assert telegram.extra.get("allow_from") == ["111222333", "444555666"], (
             "allow_from configured under platforms.telegram must be bridged "
             "into PlatformConfig.extra by the shared-key loop"
@@ -1064,7 +1064,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        telegram = config.platforms[Platform.TELEGRAM]
+        telegram = config.platforms[Platform.FEISHU]
         assert telegram.extra.get("allow_from") == ["777888999"], (
             "allow_from configured under plugins.platforms.telegram.adapter must be "
             "bridged into PlatformConfig.extra by the shared-key loop"
@@ -1120,7 +1120,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        discord = config.platforms[Platform.DISCORD]
+        discord = config.platforms[Platform.FEISHU]
         assert "1234567890" in discord.channel_overrides
         ov = discord.channel_overrides["1234567890"]
         assert ov.model == "openrouter/healer-alpha"
@@ -1143,7 +1143,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.DISCORD].extra["channel_prompts"] == {
+        assert config.platforms[Platform.FEISHU].extra["channel_prompts"] == {
             "123": "Research mode",
             "456": "Therapist mode",
         }
@@ -1184,7 +1184,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.TELEGRAM].extra["channel_prompts"] == {
+        assert config.platforms[Platform.FEISHU].extra["channel_prompts"] == {
             "-1001234567": "Research assistant",
             "789": "Creative writing",
         }
@@ -1204,7 +1204,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.SLACK].extra["channel_prompts"] == {
+        assert config.platforms[Platform.FEISHU].extra["channel_prompts"] == {
             "C01ABC": "Code review mode",
         }
 
@@ -1300,7 +1300,7 @@ class TestLoadGatewayConfig:
         config = load_gateway_config()
 
         assert config.unauthorized_dm_behavior == "ignore"
-        assert config.platforms[Platform.WHATSAPP].extra["unauthorized_dm_behavior"] == "pair"
+        assert config.platforms[Platform.FEISHU].extra["unauthorized_dm_behavior"] == "pair"
 
     def test_bridges_telegram_disable_link_previews_from_config_yaml(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
@@ -1316,7 +1316,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.TELEGRAM].extra["disable_link_previews"] is True
+        assert config.platforms[Platform.FEISHU].extra["disable_link_previews"] is True
 
     def test_loads_telegram_rich_messages_from_gateway_platform_extra(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
@@ -1335,7 +1335,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.TELEGRAM].extra["rich_messages"] is False
+        assert config.platforms[Platform.FEISHU].extra["rich_messages"] is False
 
     def test_loads_telegram_rich_drafts_from_gateway_platform_extra(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
@@ -1354,7 +1354,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.platforms[Platform.TELEGRAM].extra["rich_drafts"] is True
+        assert config.platforms[Platform.FEISHU].extra["rich_drafts"] is True
 
     def test_load_config_default_keeps_telegram_rich_messages_opt_in(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
@@ -1385,7 +1385,7 @@ class TestLoadGatewayConfig:
         config = load_gateway_config()
 
         assert (
-            config.platforms[Platform.TELEGRAM].extra["base_url"]
+            config.platforms[Platform.FEISHU].extra["base_url"]
             == "https://custom-proxy.example.com/bot"
         )
 
@@ -1403,7 +1403,7 @@ class TestLoadGatewayConfig:
 
         config = load_gateway_config()
 
-        assert config.get_notice_delivery(Platform.SLACK) == "private"
+        assert config.get_notice_delivery(Platform.FEISHU) == "private"
 
     def test_bridges_telegram_proxy_url_from_config_yaml(self, tmp_path, monkeypatch):
         hermes_home = tmp_path / ".hermes"
@@ -1475,7 +1475,7 @@ class TestLoadGatewayConfig:
             reset_hermes_home_override(home_token)
 
         assert config.multiplex_profiles is True
-        assert config.platforms[Platform.DISCORD].token == "worker-token"
+        assert config.platforms[Platform.FEISHU].token == "worker-token"
         assert Platform.API_SERVER not in config.platforms
 
 
@@ -1486,13 +1486,13 @@ class TestHomeChannelEnvOverrides:
     def test_existing_platform_configs_accept_home_channel_env_overrides(self):
         cases = [
             (
-                Platform.SLACK,
+                Platform.FEISHU,
                 PlatformConfig(enabled=True, token="xoxb-from-config"),
                 {"SLACK_HOME_CHANNEL": "C123", "SLACK_HOME_CHANNEL_NAME": "Ops"},
                 ("C123", "Ops"),
             ),
             (
-                Platform.WHATSAPP,
+                Platform.FEISHU,
                 PlatformConfig(enabled=True),
                 {
                     "WHATSAPP_HOME_CHANNEL": "1234567890@lid",
@@ -1510,7 +1510,7 @@ class TestHomeChannelEnvOverrides:
                 ("+1555000", "Phone"),
             ),
             (
-                Platform.MATTERMOST,
+                Platform.FEISHU,
                 PlatformConfig(
                     enabled=True,
                     token="mm-token",
@@ -1520,7 +1520,7 @@ class TestHomeChannelEnvOverrides:
                 ("ch_abc123", "General"),
             ),
             (
-                Platform.MATRIX,
+                Platform.FEISHU,
                 PlatformConfig(
                     enabled=True,
                     token="syt_abc123",
@@ -1530,7 +1530,7 @@ class TestHomeChannelEnvOverrides:
                 ("!room123:example.org", "Bot Room"),
             ),
             (
-                Platform.EMAIL,
+                Platform.FEISHU,
                 PlatformConfig(
                     enabled=True,
                     extra={
@@ -1543,7 +1543,7 @@ class TestHomeChannelEnvOverrides:
                 ("user@test.com", "Inbox"),
             ),
             (
-                Platform.SMS,
+                Platform.FEISHU,
                 PlatformConfig(enabled=True, api_key="token_abc"),
                 {"SMS_HOME_CHANNEL": "+15559876543", "SMS_HOME_CHANNEL_NAME": "My Phone"},
                 ("+15559876543", "My Phone"),

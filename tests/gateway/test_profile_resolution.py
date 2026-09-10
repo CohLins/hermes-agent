@@ -377,7 +377,7 @@ class TestAdapterToSessionKeyIntegration:
 
     def test_discord_adapter_stamps_profile_and_scopes_key(self, mock_runner):
         mock_runner.config.profile_routes = self._routes()
-        adapter = _stub_adapter(Platform.DISCORD, mock_runner)
+        adapter = _stub_adapter(Platform.FEISHU, mock_runner)
 
         source = adapter.build_source(
             chat_id="222", chat_type="group", guild_id="111", user_id="u1",
@@ -394,7 +394,7 @@ class TestAdapterToSessionKeyIntegration:
         ``gateway_runner``, so ``build_source`` stamps the profile and the
         session key is isolated under ``agent:ops:`` instead of ``agent:main:``."""
         mock_runner.config.profile_routes = self._routes()
-        adapter = _stub_adapter(Platform.TELEGRAM, mock_runner)
+        adapter = _stub_adapter(Platform.FEISHU, mock_runner)
 
         source = adapter.build_source(
             chat_id="-1001234567890", chat_type="group", user_id="u1",
@@ -411,7 +411,7 @@ class TestAdapterToSessionKeyIntegration:
         and the session key is the shared ``agent:main:`` namespace — no
         per-profile isolation. This is the silent fallback the fix removes for
         non-Discord platforms."""
-        adapter = _stub_adapter(Platform.TELEGRAM, runner=None)
+        adapter = _stub_adapter(Platform.FEISHU, runner=None)
 
         source = adapter.build_source(
             chat_id="-1001234567890", chat_type="group", user_id="u1",
@@ -461,7 +461,7 @@ class TestMultiplexGate:
             ProfileRoute(name="dc", platform="discord", profile="coder",
                          guild_id="111", chat_id="222"),
         ]
-        adapter = _stub_adapter(Platform.DISCORD, mock_runner)
+        adapter = _stub_adapter(Platform.FEISHU, mock_runner)
 
         source = adapter.build_source(
             chat_id="222", chat_type="group", guild_id="111", user_id="u1",

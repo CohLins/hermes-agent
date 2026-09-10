@@ -337,7 +337,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
                           help="Skill to force-load into the worker "
                                "(repeatable). The kanban lifecycle is already "
                                "injected automatically. Example: "
-                               "--skill translation --skill github-code-review")
+                               "--skill translation --skill requesting-code-review")
     p_create.add_argument("--max-retries", type=int, default=None,
                           metavar="N",
                           help="Per-task override for the consecutive-failure "

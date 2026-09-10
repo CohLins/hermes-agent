@@ -25,7 +25,7 @@ from gateway.platforms.base import (
 
 class _StubAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.TELEGRAM)
+        super().__init__(PlatformConfig(enabled=True, token="test"), Platform.FEISHU)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         return True
@@ -54,7 +54,7 @@ class TestQueueMessageStorage:
         event = MessageEvent(
             text="do this next",
             message_type=MessageType.TEXT,
-            source=MagicMock(chat_id="123", platform=Platform.TELEGRAM),
+            source=MagicMock(chat_id="123", platform=Platform.FEISHU),
             message_id="q1",
         )
         adapter._pending_messages[session_key] = event
@@ -68,7 +68,7 @@ class TestQueueMessageStorage:
         event = MessageEvent(
             text="queued prompt",
             message_type=MessageType.TEXT,
-            source=MagicMock(chat_id="123", platform=Platform.TELEGRAM),
+            source=MagicMock(chat_id="123", platform=Platform.FEISHU),
             message_id="q2",
         )
         adapter._pending_messages[session_key] = event
@@ -85,7 +85,7 @@ class TestQueueMessageStorage:
         event = MessageEvent(
             text="",
             message_type=MessageType.VOICE,
-            source=MagicMock(chat_id="123", platform=Platform.TELEGRAM),
+            source=MagicMock(chat_id="123", platform=Platform.FEISHU),
             message_id="voice-q1",
             media_urls=["/tmp/voice.ogg"],
             media_types=["audio/ogg"],
@@ -185,7 +185,7 @@ class TestQueueConsumptionAfterCompletion:
             MessageEvent(
                 text=text,
                 message_type=MessageType.TEXT,
-                source=MagicMock(chat_id="123", platform=Platform.TELEGRAM),
+                source=MagicMock(chat_id="123", platform=Platform.FEISHU),
                 message_id=f"q-{text}",
             )
             for text in ("first", "second", "third")
@@ -378,13 +378,13 @@ class TestBusyInputModeQueueFifo:
         runner = GatewayRunner.__new__(GatewayRunner)
         runner._queued_events = {}
         adapter = _StubAdapter()
-        runner.adapters = {Platform.TELEGRAM: adapter}
+        runner.adapters = {Platform.FEISHU: adapter}
         return runner, adapter
 
     def _text_event(self, text: str) -> MessageEvent:
         # profile=None: a MagicMock auto-attribute reads as a truthy stamped
         # profile and trips fail-closed adapter resolution (AGENTS.md #17).
-        source = MagicMock(chat_id="c1", platform=Platform.TELEGRAM, profile=None)
+        source = MagicMock(chat_id="c1", platform=Platform.FEISHU, profile=None)
         return MessageEvent(
             text=text,
             message_type=MessageType.TEXT,
@@ -435,7 +435,7 @@ class TestBusyInputModeQueueFifo:
         runner, adapter = self._make_runner_and_adapter()
         session_key = "telegram:user:burst"
 
-        source = MagicMock(chat_id="c1", platform=Platform.TELEGRAM, profile=None)
+        source = MagicMock(chat_id="c1", platform=Platform.FEISHU, profile=None)
         for i in range(3):
             runner._queue_or_replace_pending_event(
                 session_key,

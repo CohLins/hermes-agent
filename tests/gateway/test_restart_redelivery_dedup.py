@@ -42,7 +42,7 @@ async def test_restart_handler_writes_dedup_marker_with_update_id(tmp_path, monk
     marker_path = tmp_path / ".restart_last_processed.json"
     assert marker_path.exists()
     data = json.loads(marker_path.read_text())
-    assert data["platform"] == "telegram"
+    assert data["platform"] == "feishu"
     assert data["update_id"] == 12345
     assert isinstance(data["requested_at"], (int, float))
 
@@ -265,7 +265,7 @@ async def test_different_platform_bypasses_dedup(tmp_path, monkeypatch):
 
     # /restart from Discord — not a redelivery candidate
     discord_source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         chat_id="discord-chan",
         chat_type="dm",
         user_id="u1",

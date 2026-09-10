@@ -70,7 +70,7 @@ async def test_restart_command_writes_notify_file(tmp_path, monkeypatch):
     notify_path = tmp_path / ".restart_notify.json"
     assert notify_path.exists()
     data = json.loads(notify_path.read_text())
-    assert data["platform"] == "telegram"
+    assert data["platform"] == "feishu"
     assert data["chat_id"] == "42"
     assert data["chat_type"] == "dm"
     assert data["message_id"] == "m1"
@@ -175,7 +175,7 @@ async def test_restart_command_uses_atomic_json_writes_for_marker_files(tmp_path
     names = [name for name, _payload, _kwargs in calls]
     assert names == [".restart_notify.json", ".restart_last_processed.json"]
     assert calls[0][1]["chat_id"] == "42"
-    assert calls[1][1]["platform"] == "telegram"
+    assert calls[1][1]["platform"] == "feishu"
 
 
 @pytest.mark.asyncio
@@ -202,7 +202,7 @@ async def test_sethome_updates_running_config_for_same_process_restart(tmp_path,
 
     result = await runner._handle_set_home_command(event)
 
-    home = runner.config.get_home_channel(Platform.TELEGRAM)
+    home = runner.config.get_home_channel(Platform.FEISHU)
     assert "Home channel set" in result
     assert saved["TELEGRAM_HOME_CHANNEL"] == "home-42"
     assert home is not None
@@ -234,7 +234,7 @@ async def test_sethome_preserves_thread_target_for_same_process_restart(tmp_path
 
     result = await runner._handle_set_home_command(event)
 
-    home = runner.config.get_home_channel(Platform.TELEGRAM)
+    home = runner.config.get_home_channel(Platform.FEISHU)
     assert "Home channel set" in result
     assert saved["TELEGRAM_HOME_CHANNEL"] == "parent-42"
     assert saved["TELEGRAM_HOME_CHANNEL_THREAD_ID"] == "topic-7"
@@ -251,8 +251,8 @@ async def test_send_home_channel_startup_notification_to_configured_home(tmp_pat
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
@@ -274,8 +274,8 @@ async def test_send_home_channel_startup_notification_preserves_thread_metadata(
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="parent-42",
         name="Ops Topic",
         thread_id="777",
@@ -313,8 +313,8 @@ async def test_send_home_channel_startup_notification_skips_restart_target(
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="42",
         name="Ops Home",
     )
@@ -335,8 +335,8 @@ async def test_send_home_channel_startup_notification_does_not_skip_different_th
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="42",
         name="Ops Home",
     )
@@ -357,8 +357,8 @@ async def test_send_home_channel_startup_notification_ignores_false_send_result(
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
@@ -544,12 +544,12 @@ async def test_send_home_channel_startup_notification_skipped_when_flag_disabled
     monkeypatch.setattr(gateway_run, "_hermes_home", tmp_path)
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
-    runner.config.platforms[Platform.TELEGRAM].gateway_restart_notification = False
+    runner.config.platforms[Platform.FEISHU].gateway_restart_notification = False
     adapter.send = AsyncMock()
 
     delivered = await runner._send_home_channel_startup_notifications()
@@ -568,10 +568,10 @@ async def test_send_home_channel_startup_notification_default_flag_true(
     runner, adapter = make_restart_runner()
     # Sanity-check the dataclass default — guards against future refactors
     # silently flipping the default to False.
-    assert runner.config.platforms[Platform.TELEGRAM].gateway_restart_notification is True
+    assert runner.config.platforms[Platform.FEISHU].gateway_restart_notification is True
 
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
@@ -602,7 +602,7 @@ async def test_send_restart_notification_skipped_when_flag_disabled(
     }))
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].gateway_restart_notification = False
+    runner.config.platforms[Platform.FEISHU].gateway_restart_notification = False
     adapter.send = AsyncMock()
 
     delivered_target = await runner._send_restart_notification()

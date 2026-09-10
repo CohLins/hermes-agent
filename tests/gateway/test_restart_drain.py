@@ -484,7 +484,7 @@ async def test_shutdown_notification_suppressed_when_flag_disabled():
 
     runner, adapter = make_restart_runner()
     runner._restart_requested = True
-    runner.config.platforms[Platform.TELEGRAM].gateway_restart_notification = False
+    runner.config.platforms[Platform.FEISHU].gateway_restart_notification = False
     session_key = "agent:main:telegram:dm:999"
     runner._running_agents[session_key] = MagicMock()
 
@@ -499,12 +499,12 @@ async def test_shutdown_notification_home_channel_suppressed_when_flag_disabled(
     from gateway.config import HomeChannel, Platform
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
-    runner.config.platforms[Platform.TELEGRAM].gateway_restart_notification = False
+    runner.config.platforms[Platform.FEISHU].gateway_restart_notification = False
 
     await runner._notify_active_sessions_of_shutdown()
 
@@ -517,7 +517,7 @@ async def test_shutdown_notification_uses_persisted_origin_for_colon_ids():
     runner, adapter = make_restart_runner()
     adapter.send = AsyncMock()
     source = make_restart_source(chat_id="!room123:example.org", chat_type="group")
-    source.platform = gateway_run.Platform.MATRIX
+    source.platform = gateway_run.Platform.FEISHU
     session_key = build_session_key(source)
     runner._running_agents[session_key] = MagicMock()
     runner.session_store._entries = {
@@ -531,7 +531,7 @@ async def test_shutdown_notification_uses_persisted_origin_for_colon_ids():
             chat_type=source.chat_type,
         )
     }
-    runner.adapters = {gateway_run.Platform.MATRIX: adapter}
+    runner.adapters = {gateway_run.Platform.FEISHU: adapter}
 
     await runner._notify_active_sessions_of_shutdown()
 
@@ -553,8 +553,8 @@ async def test_drain_suppress_skips_home_channel_keeps_session_ping(tmp_path, mo
 
     runner, adapter = make_restart_runner()
     # A home channel distinct from the active session's chat.
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )
@@ -588,8 +588,8 @@ async def test_drain_without_suppress_flag_still_broadcasts_home_channel(tmp_pat
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
 
     runner, adapter = make_restart_runner()
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-42",
         name="Ops Home",
     )

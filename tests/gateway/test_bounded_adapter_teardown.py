@@ -39,7 +39,7 @@ async def test_teardown_calls_both_methods(bare_runner):
     )
     adapter.disconnect = AsyncMock(side_effect=lambda: calls.append("disconnect"))
 
-    await bare_runner._bounded_adapter_teardown(adapter, Platform.TELEGRAM)
+    await bare_runner._bounded_adapter_teardown(adapter, Platform.FEISHU)
 
     adapter.cancel_background_tasks.assert_awaited_once()
     adapter.disconnect.assert_awaited_once()
@@ -141,7 +141,7 @@ async def test_teardown_swallows_exceptions(bare_runner):
     adapter.disconnect = AsyncMock(side_effect=RuntimeError("disc"))
 
     # Must NOT raise.
-    await bare_runner._bounded_adapter_teardown(adapter, Platform.TELEGRAM)
+    await bare_runner._bounded_adapter_teardown(adapter, Platform.FEISHU)
 
     adapter.cancel_background_tasks.assert_awaited_once()
     adapter.disconnect.assert_awaited_once()
@@ -156,7 +156,7 @@ async def test_teardown_profile_suffix_in_logs(bare_runner, caplog):
 
     with caplog.at_level(logging.INFO, logger="gateway.run"):
         await bare_runner._bounded_adapter_teardown(
-            adapter, Platform.TELEGRAM, profile="acct2"
+            adapter, Platform.FEISHU, profile="acct2"
         )
 
     assert "(profile: acct2)" in caplog.text
@@ -170,7 +170,7 @@ async def test_teardown_timeout_zero_disables_bound(bare_runner, monkeypatch):
     adapter.cancel_background_tasks = AsyncMock(return_value=None)
     adapter.disconnect = AsyncMock(return_value=None)
 
-    await bare_runner._bounded_adapter_teardown(adapter, Platform.TELEGRAM)
+    await bare_runner._bounded_adapter_teardown(adapter, Platform.FEISHU)
 
     adapter.cancel_background_tasks.assert_awaited_once()
     adapter.disconnect.assert_awaited_once()

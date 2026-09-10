@@ -253,6 +253,13 @@ class Platform(Enum):
     LOCAL = "local"
     API_SERVER = "api_server"
     FEISHU = "feishu"
+    # Generic relay/connector adapter (gateway/relay/). Registered only when a
+    # connector relay URL is configured (GATEWAY_RELAY_URL / gateway.relay_url);
+    # unset means no-op. The connector owns all per-platform knowledge, so this
+    # member is what lets the gateway front arbitrary platforms without any
+    # in-tree adapter. gateway/relay/adapter.py and ws_transport.py reference
+    # Platform.RELAY directly — without it the whole relay path AttributeErrors.
+    RELAY = "relay"
 
 
 _RUNTIME_PLATFORM_VALUES = frozenset(platform.value for platform in Platform)

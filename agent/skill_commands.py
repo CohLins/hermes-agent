@@ -521,7 +521,7 @@ def build_skill_invocation_message(
     """Build the user message content for a skill slash command invocation.
 
     Args:
-        cmd_key: The command key including leading slash (e.g., "/gif-search").
+        cmd_key: The command key including leading slash (e.g., "/humanizer").
         user_instruction: Optional text the user typed after the command.
 
     Returns:

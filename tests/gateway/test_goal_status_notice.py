@@ -50,10 +50,10 @@ async def test_goal_status_notice_uses_adapter_send_with_thread_metadata():
     """
     runner = GatewayRunner.__new__(GatewayRunner)
     adapter = FakeAdapter()
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         chat_id="parent-channel",
         thread_id="thread-123",
     )
@@ -80,11 +80,11 @@ async def test_goal_status_notice_defers_until_post_delivery_callback():
     """
     runner = GatewayRunner.__new__(GatewayRunner)
     adapter = FakeAdapter()
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
     runner.config = SimpleNamespace(group_sessions_per_user=True, thread_sessions_per_user=False)
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         chat_id="parent-channel",
         thread_id="thread-123",
         user_id="user-1",
@@ -123,7 +123,7 @@ def test_clear_goal_pending_continuations_removes_slot_and_overflow_only():
     runner._queued_events = {}
 
     source = SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         chat_id="parent-channel",
         thread_id="thread-123",
     )

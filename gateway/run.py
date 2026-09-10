@@ -6931,7 +6931,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             "WEIXIN_ALLOWED_USERS",
             "BLUEBUBBLES_ALLOWED_USERS",
             "QQ_ALLOWED_USERS",
-            "YUANBAO_ALLOWED_USERS",
             "GATEWAY_ALLOWED_USERS",
         )
         _builtin_allow_all_vars = (
@@ -6947,7 +6946,6 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             "WEIXIN_ALLOW_ALL_USERS",
             "BLUEBUBBLES_ALLOW_ALL_USERS",
             "QQ_ALLOW_ALL_USERS",
-            "YUANBAO_ALLOW_ALL_USERS",
         )
         # Also pick up plugin-registered platforms — each entry can declare
         # its own allowed_users_env / allow_all_env, so the warning stays

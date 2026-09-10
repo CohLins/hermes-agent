@@ -96,7 +96,7 @@ class TestDeadTargetRegistry:
 @pytest.mark.asyncio
 async def test_forbidden_marks_target_dead_then_short_circuits(isolate):
     adapter = ForbiddenThenOkAdapter(fail_times=99)
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
+    router = DeliveryRouter(GatewayConfig(), adapters={Platform.FEISHU: adapter})
     target = DeliveryTarget.parse("telegram:42")
 
     # First delivery: send raises Forbidden -> failure + target recorded dead.
@@ -116,7 +116,7 @@ async def test_forbidden_marks_target_dead_then_short_circuits(isolate):
 async def test_successful_send_clears_dead_flag(isolate):
     # Fails once (gets marked dead), then succeeds.
     adapter = ForbiddenThenOkAdapter(fail_times=1)
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
+    router = DeliveryRouter(GatewayConfig(), adapters={Platform.FEISHU: adapter})
     target = DeliveryTarget.parse("telegram:7")
 
     # Pre-seed dead via the first (failing) delivery.
@@ -134,7 +134,7 @@ async def test_successful_send_clears_dead_flag(isolate):
 @pytest.mark.asyncio
 async def test_transient_failure_does_not_mark_dead(isolate):
     adapter = TransientFailAdapter()
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
+    router = DeliveryRouter(GatewayConfig(), adapters={Platform.FEISHU: adapter})
     target = DeliveryTarget.parse("telegram:13")
 
     res = await router.deliver("hi", [target])
@@ -159,7 +159,7 @@ async def test_shared_registry_is_used_when_injected(isolate):
     adapter = ForbiddenThenOkAdapter(fail_times=0)
     router = DeliveryRouter(
         GatewayConfig(),
-        adapters={Platform.TELEGRAM: adapter},
+        adapters={Platform.FEISHU: adapter},
         dead_targets=shared,
     )
     target = DeliveryTarget.parse("telegram:500")
@@ -199,7 +199,7 @@ async def test_chat_level_not_found_marks_target_dead(isolate):
     # "chat not found" -> the whole chat/user/group is gone, so it is dead
     # (same blast radius as forbidden).
     adapter = RaisingAdapter("Bad Request: chat not found")
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
+    router = DeliveryRouter(GatewayConfig(), adapters={Platform.FEISHU: adapter})
     target = DeliveryTarget.parse("telegram:100")
 
     res = await router.deliver("hi", [target])
@@ -213,7 +213,7 @@ async def test_thread_or_message_level_not_found_does_not_mark_chat_dead(isolate
     # A deleted forum topic / edited-away message is NOT a whole-chat death: marking
     # the parent chat dead would silently short-circuit every future delivery to it.
     adapter = RaisingAdapter(message)
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
+    router = DeliveryRouter(GatewayConfig(), adapters={Platform.FEISHU: adapter})
     target = DeliveryTarget.parse("telegram:200")
 
     res = await router.deliver("hi", [target])

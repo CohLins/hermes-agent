@@ -73,7 +73,7 @@ class TestLoadGatewayConfigForRunner:
 
         cfg = run_mod.load_gateway_config_for_runner()
         assert cfg.multiplex_profiles is True
-        tg = cfg.platforms.get(Platform.TELEGRAM)
+        tg = cfg.platforms.get(Platform.FEISHU)
         assert tg is not None
         assert tg.token == "default-profile-token-123"
         assert tg.enabled is True
@@ -84,17 +84,17 @@ class TestPlatformHasBotCredential:
         from gateway.run import _platform_has_bot_credential
 
         assert _platform_has_bot_credential(
-            Platform.TELEGRAM, PlatformConfig(enabled=True, token="")
+            Platform.FEISHU, PlatformConfig(enabled=True, token="")
         ) is False
         assert _platform_has_bot_credential(
-            Platform.TELEGRAM, PlatformConfig(enabled=True, token=None)
+            Platform.FEISHU, PlatformConfig(enabled=True, token=None)
         ) is False
 
     def test_telegram_with_token_true(self):
         from gateway.run import _platform_has_bot_credential
 
         assert _platform_has_bot_credential(
-            Platform.TELEGRAM, PlatformConfig(enabled=True, token="123:abc")
+            Platform.FEISHU, PlatformConfig(enabled=True, token="123:abc")
         ) is True
 
     def test_non_token_platform_always_true(self):
@@ -104,12 +104,12 @@ class TestPlatformHasBotCredential:
         # Use a platform that exists but is outside the token set when possible.
         for plat in Platform:
             if plat in {
-                Platform.TELEGRAM,
-                Platform.DISCORD,
-                Platform.SLACK,
-                Platform.MATTERMOST,
-                Platform.MATRIX,
-                Platform.WEIXIN,
+                Platform.FEISHU,
+                Platform.FEISHU,
+                Platform.FEISHU,
+                Platform.FEISHU,
+                Platform.FEISHU,
+                Platform.FEISHU,
             }:
                 continue
             assert _platform_has_bot_credential(
@@ -124,7 +124,7 @@ class TestPrimaryStartupSkipsEmptyTokenUnderMultiplex:
         from gateway.run import GatewayRunner
 
         cfg = GatewayConfig(multiplex_profiles=True)
-        cfg.platforms[Platform.TELEGRAM] = PlatformConfig(
+        cfg.platforms[Platform.FEISHU] = PlatformConfig(
             enabled=True, token=""  # empty — lives on secondary only
         )
 
@@ -171,7 +171,7 @@ class TestPrimaryStartupSkipsEmptyTokenUnderMultiplex:
                 continue
             created.append(platform)
 
-        assert skipped == [Platform.TELEGRAM]
+        assert skipped == [Platform.FEISHU]
         assert created == []
 
     @pytest.mark.asyncio
@@ -179,7 +179,7 @@ class TestPrimaryStartupSkipsEmptyTokenUnderMultiplex:
         from gateway.run import _platform_has_bot_credential
 
         cfg = GatewayConfig(multiplex_profiles=True)
-        cfg.platforms[Platform.TELEGRAM] = PlatformConfig(
+        cfg.platforms[Platform.FEISHU] = PlatformConfig(
             enabled=True, token="123:abc"
         )
         started = []
@@ -191,7 +191,7 @@ class TestPrimaryStartupSkipsEmptyTokenUnderMultiplex:
             ):
                 continue
             started.append(platform)
-        assert started == [Platform.TELEGRAM]
+        assert started == [Platform.FEISHU]
 
 
 class TestReconnectDropsEmptyToken:
@@ -201,7 +201,7 @@ class TestReconnectDropsEmptyToken:
         from gateway.config import Platform, PlatformConfig
 
         # Unit-level: the branch condition the watcher uses.
-        platform = Platform.TELEGRAM
+        platform = Platform.FEISHU
         platform_config = PlatformConfig(enabled=True, token="")
         failed = {
             platform: {

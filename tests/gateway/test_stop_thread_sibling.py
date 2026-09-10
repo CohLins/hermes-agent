@@ -21,7 +21,7 @@ class _FakeAgent:
 
 def _thread_source(uid, thread_id="thr1", chat_id="chan1"):
     return SessionSource(
-        platform=Platform.DISCORD,
+        platform=Platform.FEISHU,
         chat_type="forum",
         chat_id=chat_id,
         thread_id=thread_id,
@@ -78,11 +78,11 @@ def test_sibling_returns_empty_for_non_thread_source():
     # Non-thread group/channel must NOT trigger the cross-user fallback.
     runner = object.__new__(GatewayRunner)
     nonthread = SessionSource(
-        platform=Platform.DISCORD, chat_type="group", chat_id="chan1", user_id="userA"
+        platform=Platform.FEISHU, chat_type="group", chat_id="chan1", user_id="userA"
     )
     grp_b = build_session_key(
         SessionSource(
-            platform=Platform.DISCORD, chat_type="group", chat_id="chan1", user_id="userB"
+            platform=Platform.FEISHU, chat_type="group", chat_id="chan1", user_id="userB"
         )
     )
     runner._running_agents = {grp_b: _FakeAgent()}
@@ -180,7 +180,7 @@ async def test_stop_no_active_agent_clears_stuck_status():
     runner._is_user_authorized = lambda source: True
 
     adapter = _FakeStatusAdapter()
-    runner.adapters = {Platform.DISCORD: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
     runner._thread_metadata_for_source = (
         lambda source, reply_to_message_id=None: {"thread_id": source.thread_id}
     )
@@ -208,7 +208,7 @@ async def test_stop_no_active_agent_survives_status_clear_failure():
         async def _stop_typing_with_metadata(self, chat_id, metadata=None):
             raise RuntimeError("boom")
 
-    runner.adapters = {Platform.DISCORD: _BoomAdapter()}
+    runner.adapters = {Platform.FEISHU: _BoomAdapter()}
     runner._thread_metadata_for_source = (
         lambda source, reply_to_message_id=None: None
     )

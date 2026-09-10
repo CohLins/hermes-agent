@@ -35,7 +35,7 @@ def _make_adapter():
     # ``platform`` is set by BasePlatformAdapter.__init__, which we skip
     # above; the inherited ``.name`` property dereferences it for log
     # formatting, so set it explicitly.
-    adapter.platform = Platform.DISCORD
+    adapter.platform = Platform.FEISHU
     return adapter
 
 

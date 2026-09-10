@@ -69,7 +69,7 @@ def test_passthrough_from_wire_byte_preserves_body():
         "bodyB64": base64.b64encode(original).decode("ascii"),
     }
     fwd = _passthrough_from_wire(wire)
-    assert fwd.platform == "discord"
+    assert fwd.platform == "feishu"
     assert fwd.bot_id == "appShared"
     assert fwd.body == original
     assert fwd.headers == [("content-type", "application/json")]

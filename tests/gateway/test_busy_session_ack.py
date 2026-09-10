@@ -135,7 +135,7 @@ class TestBusySessionAck:
         adapter = _make_adapter()
 
         source = SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="123",
             chat_type="dm",
             user_id="user1",
@@ -460,7 +460,7 @@ class TestBusySessionAck:
 
         # Both events must share the SAME platform object so they resolve to
         # the same adapter (a fresh MagicMock per event would not).
-        shared_platform = Platform.TELEGRAM
+        shared_platform = Platform.FEISHU
 
         def _evt(text):
             src = SessionSource(

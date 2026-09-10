@@ -26,7 +26,7 @@ def _make_entry(key: str, session_id: str) -> SessionEntry:
         session_id=session_id,
         created_at=now - timedelta(hours=2),
         updated_at=now - timedelta(hours=1),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
 
@@ -34,7 +34,7 @@ def _make_entry(key: str, session_id: str) -> SessionEntry:
 def _make_entry_with_origin(key: str, session_id: str) -> SessionEntry:
     entry = _make_entry(key, session_id)
     entry.origin = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="5140768830",
         chat_type="dm",
         user_id="5140768830",

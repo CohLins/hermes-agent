@@ -2532,7 +2532,7 @@ def create_task(
                 f"{quoted} {noun}, not skill name(s). "
                 "Put toolsets in the assignee profile's `toolsets:` config "
                 "instead of per-task skills. Skills are named skill bundles "
-                "(e.g. `blogwatcher`, `github-code-review`); toolsets are runtime "
+                "(e.g. `blogwatcher`, `requesting-code-review`); toolsets are runtime "
                 "capabilities (e.g. `web`, `browser`, `terminal`)."
             )
         skills_list = cleaned

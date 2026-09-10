@@ -12,7 +12,7 @@ from gateway.session import SessionEntry, SessionSource, build_session_key
 
 def _make_source() -> SessionSource:
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         user_id="u1",
         chat_id="c1",
         user_name="tester",
@@ -29,11 +29,11 @@ def _make_runner():
 
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")}
+        platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="***")}
     )
     adapter = MagicMock()
     adapter.send = AsyncMock()
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
     runner._voice_mode = {}
     runner.hooks = SimpleNamespace(emit=AsyncMock(), loaded_hooks=False)
     runner._session_model_overrides = {}
@@ -46,7 +46,7 @@ def _make_runner():
         session_id="sess-old",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     new_session_entry = SessionEntry(
@@ -54,7 +54,7 @@ def _make_runner():
         session_id="sess-new",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     runner.session_store = MagicMock()
@@ -84,7 +84,7 @@ async def test_reset_fires_finalize_hook(mock_invoke_hook):
     assert any(
         c.args == ("on_session_finalize",)
         and c.kwargs["session_id"] == "sess-old"
-        and c.kwargs["platform"] == "telegram"
+        and c.kwargs["platform"] == "feishu"
         and c.kwargs["old_session_id"] == "sess-old"
         and c.kwargs["new_session_id"] == "sess-new"
         for c in mock_invoke_hook.call_args_list
@@ -102,7 +102,7 @@ async def test_reset_fires_reset_hook(mock_invoke_hook):
     assert any(
         c.args == ("on_session_reset",)
         and c.kwargs["session_id"] == "sess-new"
-        and c.kwargs["platform"] == "telegram"
+        and c.kwargs["platform"] == "feishu"
         and c.kwargs["old_session_id"] == "sess-old"
         and c.kwargs["new_session_id"] == "sess-new"
         for c in mock_invoke_hook.call_args_list
@@ -207,7 +207,7 @@ async def test_idle_expiry_fires_finalize_hook(mock_invoke_hook):
         session_id="sess-expired",
         created_at=datetime.now() - timedelta(hours=2),
         updated_at=datetime.now() - timedelta(hours=2),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     expired_entry.expiry_finalized = False
@@ -285,7 +285,7 @@ async def test_idle_expiry_clears_last_resolved_model(mock_invoke_hook):
         session_id="sess-expired",
         created_at=datetime.now() - timedelta(hours=2),
         updated_at=datetime.now() - timedelta(hours=2),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     expired_entry.expiry_finalized = False

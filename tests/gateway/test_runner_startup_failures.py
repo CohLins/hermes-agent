@@ -10,7 +10,7 @@ from gateway.status import read_runtime_status
 
 class _RetryableFailureAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM)
+        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.FEISHU)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         self._set_fatal_error(
@@ -32,7 +32,7 @@ class _RetryableFailureAdapter(BasePlatformAdapter):
 
 class _DisabledAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=False, token="***"), Platform.TELEGRAM)
+        super().__init__(PlatformConfig(enabled=False, token="***"), Platform.FEISHU)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         raise AssertionError("connect should not be called for disabled platforms")
@@ -49,7 +49,7 @@ class _DisabledAdapter(BasePlatformAdapter):
 
 class _SuccessfulAdapter(BasePlatformAdapter):
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.FEISHU)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         return True
@@ -76,7 +76,7 @@ async def test_runner_stays_alive_for_retryable_startup_errors(monkeypatch, tmp_
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")
+            Platform.FEISHU: PlatformConfig(enabled=True, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -92,7 +92,7 @@ async def test_runner_stays_alive_for_retryable_startup_errors(monkeypatch, tmp_
     state = read_runtime_status()
     assert state["gateway_state"] in {"degraded", "running"}
     # Telegram was queued for retry, not given up on.
-    assert Platform.TELEGRAM in runner._failed_platforms
+    assert Platform.FEISHU in runner._failed_platforms
     assert state["platforms"]["telegram"]["state"] == "retrying"
     assert state["platforms"]["telegram"]["error_code"] == "telegram_connect_error"
 
@@ -102,7 +102,7 @@ async def test_runner_allows_cron_only_mode_when_no_platforms_are_enabled(monkey
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.TELEGRAM: PlatformConfig(enabled=False, token="***")
+            Platform.FEISHU: PlatformConfig(enabled=False, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -122,7 +122,7 @@ async def test_runner_records_connected_platform_state_on_success(monkeypatch, t
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.DISCORD: PlatformConfig(enabled=True, token="***")
+            Platform.FEISHU: PlatformConfig(enabled=True, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -433,8 +433,8 @@ async def test_runner_degrades_gracefully_when_all_adapters_missing(monkeypatch,
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.TELEGRAM: PlatformConfig(enabled=True, token="***"),
-            Platform.DISCORD: PlatformConfig(enabled=True, token="***"),
+            Platform.FEISHU: PlatformConfig(enabled=True, token="***"),
+            Platform.FEISHU: PlatformConfig(enabled=True, token="***"),
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -465,7 +465,7 @@ async def test_runner_degrades_gracefully_when_all_adapters_missing(monkeypatch,
 class _NonRetryableFailureAdapter(BasePlatformAdapter):
     """Simulates a fatal config error like token collision."""
     def __init__(self):
-        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.DISCORD)
+        super().__init__(PlatformConfig(enabled=True, token="***"), Platform.FEISHU)
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         self._set_fatal_error(
@@ -493,7 +493,7 @@ async def test_runner_exits_with_ex_config_on_nonretryable_startup_error(monkeyp
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
     config = GatewayConfig(
         platforms={
-            Platform.DISCORD: PlatformConfig(enabled=True, token="***")
+            Platform.FEISHU: PlatformConfig(enabled=True, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )
@@ -556,7 +556,7 @@ def test_runner_warns_when_docker_gateway_lacks_explicit_output_mount(monkeypatc
     monkeypatch.setenv("TERMINAL_DOCKER_VOLUMES", '["/etc/localtime:/etc/localtime:ro"]')
     config = GatewayConfig(
         platforms={
-            Platform.TELEGRAM: PlatformConfig(enabled=True, token="***")
+            Platform.FEISHU: PlatformConfig(enabled=True, token="***")
         },
         sessions_dir=tmp_path / "sessions",
     )

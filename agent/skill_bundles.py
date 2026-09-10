@@ -11,11 +11,11 @@ Bundles live in ``~/.hermes/skill-bundles/*.yaml`` (and the equivalent
 profile-aware directory under ``HERMES_HOME``). Each file looks like::
 
     name: backend-dev
-    description: Backend feature work — code review, testing, PR workflow.
+    description: Backend feature work — code review, testing, debugging.
     skills:
-      - github-code-review
+      - requesting-code-review
       - test-driven-development
-      - github-pr-workflow
+      - systematic-debugging
     instruction: |
       Optional extra guidance to inject above the skill bodies.
 

@@ -48,7 +48,7 @@ async def test_help_sanitizes_slash_command_mentions_for_telegram(monkeypatch):
     )
 
     result = await _make_runner()._handle_help_command(
-        _make_event("/help", Platform.TELEGRAM)
+        _make_event("/help", Platform.FEISHU)
     )
 
     assert "`/linear`" in result
@@ -66,7 +66,7 @@ async def test_commands_sanitizes_slash_command_mentions_for_telegram(monkeypatc
     )
 
     result = await _make_runner()._handle_commands_command(
-        _make_event("/commands 999", Platform.TELEGRAM)
+        _make_event("/commands 999", Platform.FEISHU)
     )
 
     assert "`/linear`" in result
@@ -82,7 +82,7 @@ async def test_help_keeps_non_telegram_slash_command_mentions_unchanged(monkeypa
     )
 
     result = await _make_runner()._handle_help_command(
-        _make_event("/help", Platform.DISCORD)
+        _make_event("/help", Platform.FEISHU)
     )
 
     assert "`/Linear`" in result

@@ -41,7 +41,7 @@ def _make_runner() -> GatewayRunner:
     """
     runner = object.__new__(GatewayRunner)
     runner.config = GatewayConfig(
-        platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="test")}
+        platforms={Platform.FEISHU: PlatformConfig(enabled=True, token="test")}
     )
     runner._running = True
     runner._shutdown_event = asyncio.Event()
@@ -91,7 +91,7 @@ class _CountingAdapter(BasePlatformAdapter):
 
     def __init__(self, *, succeed: bool = False, fatal_error: str | None = None,
                  fatal_retryable: bool = True, raise_during_connect: bool = False):
-        super().__init__(PlatformConfig(enabled=True, token="t"), Platform.TELEGRAM)
+        super().__init__(PlatformConfig(enabled=True, token="t"), Platform.FEISHU)
         # 2 fds to track: the canonical "ResponseStore" pair. The
         # reconnect watcher should call disconnect() once per
         # construction; otherwise these stay open and contribute to
@@ -129,7 +129,7 @@ class _CountingAdapter(BasePlatformAdapter):
 
 def _seed_runner_with_one_failure(runner: GatewayRunner) -> None:
     """Queue a single platform for the reconnect watcher to pick up."""
-    runner._failed_platforms[Platform.TELEGRAM] = {
+    runner._failed_platforms[Platform.FEISHU] = {
         "config": PlatformConfig(enabled=True, token="t"),
         "attempts": 0,
         "next_retry": time.monotonic() - 1,  # eligible immediately
@@ -251,7 +251,7 @@ class TestReconnectFDLeakRegression:
             def __init__(self):
                 super().__init__(
                     PlatformConfig(enabled=True, token="t"),
-                    Platform.TELEGRAM,
+                    Platform.FEISHU,
                 )
 
             async def connect(self, *, is_reconnect: bool = False) -> bool:

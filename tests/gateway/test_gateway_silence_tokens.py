@@ -17,7 +17,7 @@ from gateway.response_filters import (
 
 def _source():
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="-1001",
         chat_type="group",
         user_id="12345",
@@ -58,7 +58,7 @@ def _runner(monkeypatch, tmp_path):
         session_id="sess-silent",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="group",
     )
     runner.session_store.load_transcript.return_value = []

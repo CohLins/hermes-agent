@@ -33,7 +33,7 @@ def _make_telegram_adapter(*, allowed_chats=None, require_mention=None, guest_mo
         extra["require_mention"] = require_mention
 
     adapter = object.__new__(TelegramAdapter)
-    adapter.platform = Platform.TELEGRAM
+    adapter.platform = Platform.FEISHU
     adapter.config = PlatformConfig(enabled=True, token="***", extra=extra)
     adapter._bot = SimpleNamespace(id=999, username="hermes_bot")
     adapter._message_handler = AsyncMock()
@@ -172,7 +172,7 @@ def _make_dingtalk_adapter(*, allowed_chats=None, require_mention=None):
         extra["require_mention"] = require_mention
 
     adapter = object.__new__(DingTalkAdapter)
-    adapter.platform = Platform.DINGTALK
+    adapter.platform = Platform.FEISHU
     adapter.config = PlatformConfig(enabled=True, extra=extra)
     return adapter
 

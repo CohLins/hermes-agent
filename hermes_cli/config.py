@@ -273,7 +273,6 @@ _EXTRA_ENV_KEYS = frozenset({
     "DINGTALK_HOME_CHANNEL", "DINGTALK_HOME_CHANNEL_NAME",
     "FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_ENCRYPT_KEY", "FEISHU_VERIFICATION_TOKEN",
     "FEISHU_HOME_CHANNEL", "FEISHU_HOME_CHANNEL_NAME",
-    "YUANBAO_HOME_CHANNEL", "YUANBAO_HOME_CHANNEL_NAME",
     "WECOM_BOT_ID", "WECOM_SECRET",
     "WECOM_CALLBACK_CORP_ID", "WECOM_CALLBACK_CORP_SECRET", "WECOM_CALLBACK_AGENT_ID",
     "WECOM_CALLBACK_TOKEN", "WECOM_CALLBACK_ENCODING_AES_KEY",
@@ -2008,31 +2007,6 @@ DEFAULT_CONFIG = {
             "fields": ["model", "context_pct", "cwd"],  # Order shown; drop any to hide
         },
         "copy_shortcut": "auto",  # "auto" (platform default) | "ctrl_c" | "ctrl_shift_c" | "disabled"
-        # Petdex animated mascot (https://github.com/crafter-station/petdex).
-        # A purely cosmetic sprite that reacts to agent activity across the
-        # CLI, TUI, and desktop app. Manage with `hermes pets`. Disabled until
-        # a pet is installed + selected (no effect on prompt caching — this is
-        # a display concern only).
-        "pet": {
-            "enabled": False,
-            # Active pet slug; resolved against installed pets in
-            # get_hermes_home()/pets/. Empty → first installed pet.
-            "slug": "",
-            # Terminal render protocol for CLI/TUI:
-            #   auto  — detect kitty/iTerm2/sixel, else unicode half-blocks
-            #   kitty | iterm | sixel | unicode | off
-            "render_mode": "auto",
-            # Master size scalar (relative to native 192×208 frames). One knob
-            # shrinks every surface: the desktop canvas scales its pixels by it
-            # and the CLI/TUI derive their terminal column width from it. The
-            # half-block fallback clamps to a legibility floor (it can't shrink
-            # as far as true-pixel kitty/GUI without turning to mush).
-            "scale": 0.33,
-            # Hard override for terminal column width. 0 = auto (derive from
-            # scale); set a positive int only to pin the half-block/kitty width
-            # independently of scale.
-            "unicode_cols": 0,
-        },
     },
 
     # Web dashboard settings
@@ -4089,7 +4063,7 @@ OPTIONAL_ENV_VARS = {
     # skills legitimately need these passed through to curl via
     # tools/env_passthrough.py when the user's skill calls out.
     "NOTION_API_KEY": {
-        "description": "Notion integration token (used by the `notion` skill)",
+        "description": "Notion integration token",
         "prompt": "Notion API key",
         "url": "https://www.notion.so/my-integrations",
         "password": True,
@@ -4097,7 +4071,7 @@ OPTIONAL_ENV_VARS = {
         "advanced": True,
     },
     "LINEAR_API_KEY": {
-        "description": "Linear personal API key (used by the `linear` skill)",
+        "description": "Linear personal API key",
         "prompt": "Linear API key",
         "url": "https://linear.app/settings/account/security",
         "password": True,
@@ -4105,7 +4079,7 @@ OPTIONAL_ENV_VARS = {
         "advanced": True,
     },
     "AIRTABLE_API_KEY": {
-        "description": "Airtable personal access token (used by the `airtable` skill)",
+        "description": "Airtable personal access token",
         "prompt": "Airtable API key",
         "url": "https://airtable.com/create/tokens",
         "password": True,
@@ -4113,7 +4087,7 @@ OPTIONAL_ENV_VARS = {
         "advanced": True,
     },
     "TENOR_API_KEY": {
-        "description": "Tenor API key for GIF search (used by the `gif-search` skill)",
+        "description": "Tenor API key for GIF search",
         "prompt": "Tenor API key",
         "url": "https://developers.google.com/tenor/guides/quickstart",
         "password": True,

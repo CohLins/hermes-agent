@@ -73,10 +73,10 @@ class TestActiveApiRunCount:
     def test_ignores_non_api_platforms(self):
         runner, _adapter = make_restart_runner()
         other = SimpleNamespace(
-            platform=Platform.DISCORD,
+            platform=Platform.FEISHU,
             active_agent_work_count=lambda: 99,
         )
-        runner.adapters = {Platform.DISCORD: other}
+        runner.adapters = {Platform.FEISHU: other}
         assert runner._active_api_run_count() == 0
 
     def test_never_raises_on_broken_adapter(self):

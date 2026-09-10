@@ -99,11 +99,11 @@ async def test_handshake_negotiates_descriptor(server):
     await t.connect()
     try:
         desc = await t.handshake()
-        assert desc.platform == "discord"
+        assert desc.platform == "feishu"
         assert desc.max_message_length == 2000
         # The hello carried the platform + botId.
         hello = next(f for f in server.received if f["type"] == "hello")
-        assert hello["platform"] == "discord"
+        assert hello["platform"] == "feishu"
         assert hello["botId"] == "appShared"
     finally:
         await t.disconnect()

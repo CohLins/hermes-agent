@@ -155,7 +155,7 @@ async def test_prepare_inbound_message_text_transcribes_queued_voice_event():
     runner._has_setup_skill = lambda: False
 
     source = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="123",
         chat_type="dm",
     )

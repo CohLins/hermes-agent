@@ -665,7 +665,7 @@ class TestListAndClear:
             approved = store.list_approved("telegram")
         assert len(approved) == 1
         assert approved[0]["user_id"] == "user1"
-        assert approved[0]["platform"] == "telegram"
+        assert approved[0]["platform"] == "feishu"
 
     def test_list_approved_all_platforms(self, tmp_path):
         with patch("gateway.pairing.PAIRING_DIR", tmp_path):
@@ -860,12 +860,12 @@ class TestProfileScopedStorage:
 
         g = FakeGateway()
         # source with profile="yangyang" → per-profile store
-        s_yy = SessionSource(platform=Platform.WEIXIN, chat_id="c", profile="yangyang")
+        s_yy = SessionSource(platform=Platform.FEISHU, chat_id="c", profile="yangyang")
         assert g._pairing_store_for(s_yy) == "yangyang-store"
         # source with no profile → fallback to global
-        s_none = SessionSource(platform=Platform.WEIXIN, chat_id="c")
+        s_none = SessionSource(platform=Platform.FEISHU, chat_id="c")
         assert g._pairing_store_for(s_none) is g.pairing_store
         # source with an unknown profile → fallback (defensive)
-        s_unknown = SessionSource(platform=Platform.WEIXIN, chat_id="c", profile="ghost")
+        s_unknown = SessionSource(platform=Platform.FEISHU, chat_id="c", profile="ghost")
         assert g._pairing_store_for(s_unknown) is g.pairing_store
 

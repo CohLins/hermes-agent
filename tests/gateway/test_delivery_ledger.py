@@ -197,7 +197,7 @@ class TestGatewayRedeliverySweep:
         from gateway.run import GatewayRunner
 
         runner = object.__new__(GatewayRunner)
-        runner.adapters = {Platform.SLACK: adapter} if adapter else {}
+        runner.adapters = {Platform.FEISHU: adapter} if adapter else {}
         _store = MagicMock()
         _store.clear_resume_pending = AsyncMock()
         _store._store = None
@@ -398,7 +398,7 @@ class TestUnconnectedPlatformKeepsItsBudget:
         adapter = MagicMock()
         adapter.send = AsyncMock(return_value=MagicMock(success=True, error=""))
         runner = self._runner_without_slack()
-        runner.adapters = {Platform.SLACK: adapter}
+        runner.adapters = {Platform.FEISHU: adapter}
 
         assert await runner._redeliver_pending_obligations() == 1
         assert _row("ob-1")["state"] == "delivered"

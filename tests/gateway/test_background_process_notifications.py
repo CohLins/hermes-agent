@@ -49,7 +49,7 @@ def _build_runner(monkeypatch, tmp_path, mode: str) -> GatewayRunner:
 
     runner = GatewayRunner(GatewayConfig())
     adapter = SimpleNamespace(send=AsyncMock(), handle_message=AsyncMock())
-    runner.adapters[Platform.TELEGRAM] = adapter
+    runner.adapters[Platform.FEISHU] = adapter
     return runner
 
 
@@ -192,7 +192,7 @@ async def test_run_process_watcher_respects_notification_mode(
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path, mode)
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
 
     await runner._run_process_watcher(_watcher_dict())
 
@@ -217,7 +217,7 @@ async def test_thread_id_passed_to_send(monkeypatch, tmp_path):
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
 
     await runner._run_process_watcher(_watcher_dict(thread_id="42"))
 
@@ -239,7 +239,7 @@ async def test_no_thread_id_sends_no_metadata(monkeypatch, tmp_path):
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
 
     await runner._run_process_watcher(_watcher_dict())
 
@@ -253,10 +253,10 @@ async def test_inject_watch_notification_routes_from_session_store_origin(monkey
     from gateway.session import SessionSource
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
     runner.session_store._entries["agent:main:telegram:group:-100:42"] = SimpleNamespace(
         origin=SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="-100",
             chat_type="group",
             thread_id="42",
@@ -275,7 +275,7 @@ async def test_inject_watch_notification_routes_from_session_store_origin(monkey
     adapter.handle_message.assert_awaited_once()
     synth_event = adapter.handle_message.await_args.args[0]
     assert synth_event.internal is True
-    assert synth_event.source.platform == Platform.TELEGRAM
+    assert synth_event.source.platform == Platform.FEISHU
     assert synth_event.source.chat_id == "-100"
     assert synth_event.source.chat_type == "group"
     assert synth_event.source.thread_id == "42"
@@ -302,7 +302,7 @@ async def test_agent_notification_carries_message_id_reply_anchor(monkeypatch, t
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
 
     watcher = {
         "session_id": "proc_anchor",
@@ -339,7 +339,7 @@ async def test_agent_notification_no_message_id_is_tolerated(monkeypatch, tmp_pa
     monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
 
     watcher = {
         "session_id": "proc_anchorless",
@@ -362,10 +362,10 @@ async def test_inject_watch_notification_carries_message_id_reply_anchor(monkeyp
     from gateway.session import SessionSource
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
     runner.session_store._entries["agent:main:telegram:dm:123:24296"] = SimpleNamespace(
         origin=SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="123",
             chat_type="dm",
             thread_id="24296",
@@ -404,7 +404,7 @@ def test_build_process_event_source_falls_back_to_session_key_chat_type(monkeypa
     source = runner._build_process_event_source(evt)
 
     assert source is not None
-    assert source.platform == Platform.TELEGRAM
+    assert source.platform == Platform.FEISHU
     assert source.chat_id == "-100"
     assert source.chat_type == "group"
     assert source.thread_id == "42"
@@ -421,7 +421,7 @@ def test_build_process_event_source_uses_cached_live_source_before_session_key_p
     runner._cache_session_source(
         "agent:main:telegram:group:-100:42",
         SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="-100",
             chat_type="group",
             thread_id="42",
@@ -438,7 +438,7 @@ def test_build_process_event_source_uses_cached_live_source_before_session_key_p
     )
 
     assert source is not None
-    assert source.platform == Platform.TELEGRAM
+    assert source.platform == Platform.FEISHU
     assert source.chat_id == "-100"
     assert source.chat_type == "group"
     assert source.thread_id == "42"
@@ -452,12 +452,12 @@ async def test_inject_watch_notification_ignores_foreground_event_source(monkeyp
     from gateway.session import SessionSource
 
     runner = _build_runner(monkeypatch, tmp_path, "all")
-    adapter = runner.adapters[Platform.TELEGRAM]
+    adapter = runner.adapters[Platform.FEISHU]
 
     # Session store has the process's original thread (thread 42)
     runner.session_store._entries["agent:main:telegram:group:-100:42"] = SimpleNamespace(
         origin=SessionSource(
-            platform=Platform.TELEGRAM,
+            platform=Platform.FEISHU,
             chat_id="-100",
             chat_type="group",
             thread_id="42",

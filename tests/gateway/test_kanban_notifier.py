@@ -38,7 +38,7 @@ async def _run_one_notifier_tick(monkeypatch, runner):
 def _make_runner(adapter):
     runner = GatewayRunner.__new__(GatewayRunner)
     runner._running = True
-    runner.adapters = {Platform.TELEGRAM: adapter}
+    runner.adapters = {Platform.FEISHU: adapter}
     runner._kanban_sub_fail_counts = {}
     return runner
 
@@ -113,7 +113,7 @@ def test_kanban_notifier_rewinds_claim_if_adapter_disconnects(tmp_path, monkeypa
 
     runner = GatewayRunner.__new__(GatewayRunner)
     runner._running = True
-    runner.adapters = DisconnectedAdapters({Platform.TELEGRAM: RecordingAdapter()})
+    runner.adapters = DisconnectedAdapters({Platform.FEISHU: RecordingAdapter()})
     runner._kanban_sub_fail_counts = {}
 
     asyncio.run(_run_one_notifier_tick(monkeypatch, runner))
@@ -269,14 +269,14 @@ def test_notifier_owning_profile_adapter_no_default_fallback(tmp_path, monkeypat
     runner = GatewayRunner.__new__(GatewayRunner)
     runner._running = True
     # Default profile has a telegram adapter …
-    runner.adapters = {Platform.TELEGRAM: default_adapter}
+    runner.adapters = {Platform.FEISHU: default_adapter}
     # … and profile "beta" HAS a non-empty registry entry (so it passes the
     # notifier's upstream skip-filter, which only skips owning profiles with NO
     # adapter at all), but that entry does NOT contain a telegram adapter — beta
     # connected a different platform (discord). The telegram sub owned by beta
     # must therefore resolve to NO adapter, not silently borrow the default
     # profile's telegram bot.
-    runner._profile_adapters = {"beta": {Platform.DISCORD: other_adapter}}
+    runner._profile_adapters = {"beta": {Platform.FEISHU: other_adapter}}
     runner._kanban_sub_fail_counts = {}
 
     asyncio.run(_run_one_notifier_tick(monkeypatch, runner))

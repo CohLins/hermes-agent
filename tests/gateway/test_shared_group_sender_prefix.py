@@ -20,13 +20,13 @@ async def test_preprocess_prefixes_sender_for_shared_non_thread_group_session():
     runner = _make_runner(
         GatewayConfig(
             platforms={
-                Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake"),
+                Platform.FEISHU: PlatformConfig(enabled=True, token="fake"),
             },
             group_sessions_per_user=False,
         )
     )
     source = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="-1002285219667",
         chat_name="Test Group",
         chat_type="group",
@@ -48,12 +48,12 @@ async def test_preprocess_keeps_plain_text_for_default_group_sessions():
     runner = _make_runner(
         GatewayConfig(
             platforms={
-                Platform.TELEGRAM: PlatformConfig(enabled=True, token="fake"),
+                Platform.FEISHU: PlatformConfig(enabled=True, token="fake"),
             },
         )
     )
     source = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="-1002285219667",
         chat_name="Test Group",
         chat_type="group",

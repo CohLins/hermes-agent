@@ -5,7 +5,7 @@ The WS read loop in ``handle_ws()`` processes requests sequentially via
 (NOT in ``_LONG_HANDLERS``) run ``handle_request()`` synchronously inside
 ``dispatch()``, blocking the loop from reading the next request. Under GIL
 pressure from multiple concurrent agent turns, even lightweight RPCs like
-``session.list`` and ``pet.info`` can take seconds, causing frontend requests
+``session.list`` and ``process.list`` can take seconds, causing frontend requests
 to time out (120s) and the WebSocket to disconnect — the false "needs setup"
 failure mode (#50005).
 
@@ -65,7 +65,6 @@ def capture(server):
 
 FRONTEND_POLLED_RPCS = [
     "session.list",          # loads session list — SQLite query
-    "pet.info",              # petdex poll — file/network read
     "process.list",          # background process status — process registry scan
     "setup.runtime_check",   # runtime readiness — resolve_runtime_provider() I/O
     "setup.status",          # provider configured check — config/credential scan
@@ -112,37 +111,6 @@ def test_dispatch_inline_rpc_does_not_block_under_gil_pressure(server):
     assert fast_elapsed < 2.0, (
         f"fast handler blocked for {fast_elapsed:.2f}s behind slow session.list — "
         f"the WS read loop would stall, causing false 'needs setup' (#50005)."
-    )
-
-    released.set()
-
-
-def test_dispatch_pet_info_does_not_block_prompt_submit(server):
-    """pet.info (polled every few seconds by the Desktop petdex) must not
-    block prompt.submit. Before the fix, pet.info ran inline and a slow
-    pet.info under GIL pressure delayed prompt.submit until the 120s RPC
-    timeout fired (#50005).
-    """
-    released = threading.Event()
-
-    def slow_pet_info(rid, params):
-        released.wait(timeout=5)
-        return server._ok(rid, {"pet": "cat"})
-
-    server._methods["pet.info"] = slow_pet_info
-    server._methods["prompt.submit"] = lambda rid, params: server._ok(rid, {"status": "streaming"})
-
-    t0 = time.monotonic()
-    assert server.dispatch({"id": "pet", "method": "pet.info", "params": {}}) is None
-
-    # prompt.submit is inline (it spawns its own thread) — should return immediately
-    resp = server.dispatch({"id": "prompt", "method": "prompt.submit", "params": {}})
-    elapsed = time.monotonic() - t0
-
-    assert resp["result"] == {"status": "streaming"}
-    assert elapsed < 2.0, (
-        f"prompt.submit blocked for {elapsed:.2f}s behind slow pet.info — "
-        f"the user's message would appear stuck under GIL pressure (#50005)."
     )
 
     released.set()

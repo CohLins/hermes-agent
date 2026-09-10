@@ -17,16 +17,16 @@ from gateway.session import SessionSource
 class TestGetChannelOverride:
     def test_no_override_when_empty_config(self):
         config = GatewayConfig()
-        assert _get_channel_override(config, Platform.DISCORD, "123") is None
+        assert _get_channel_override(config, Platform.FEISHU, "123") is None
 
     def test_no_override_when_platform_not_configured(self):
         config = GatewayConfig(platforms={})
-        assert _get_channel_override(config, Platform.DISCORD, "123") is None
+        assert _get_channel_override(config, Platform.FEISHU, "123") is None
 
     def test_no_override_when_channel_not_in_overrides(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "999": ChannelOverride(model="openrouter/healer-alpha"),
@@ -34,7 +34,7 @@ class TestGetChannelOverride:
                 ),
             },
         )
-        assert _get_channel_override(config, Platform.DISCORD, "123") is None
+        assert _get_channel_override(config, Platform.FEISHU, "123") is None
 
     def test_returns_override_when_channel_matches(self):
         ov = ChannelOverride(
@@ -44,13 +44,13 @@ class TestGetChannelOverride:
         )
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={"1234567890": ov},
                 ),
             },
         )
-        result = _get_channel_override(config, Platform.DISCORD, "1234567890")
+        result = _get_channel_override(config, Platform.FEISHU, "1234567890")
         assert result is not None
         assert result.model == "openrouter/healer-alpha"
         assert result.provider == "openrouter"
@@ -60,18 +60,18 @@ class TestGetChannelOverride:
         """Caller may pass str(chat_id); override keys are normalized to str."""
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={"123": ChannelOverride(model="gpt-4")},
                 ),
             },
         )
-        assert _get_channel_override(config, Platform.DISCORD, "123").model == "gpt-4"
+        assert _get_channel_override(config, Platform.FEISHU, "123").model == "gpt-4"
 
     def test_thread_id_lookup_when_chat_id_misses(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "thread_99": ChannelOverride(model="topic-model"),
@@ -80,7 +80,7 @@ class TestGetChannelOverride:
             },
         )
         result = _get_channel_override(
-            config, Platform.DISCORD, "parent_chan", thread_id="thread_99"
+            config, Platform.FEISHU, "parent_chan", thread_id="thread_99"
         )
         assert result is not None
         assert result.model == "topic-model"
@@ -88,7 +88,7 @@ class TestGetChannelOverride:
     def test_parent_id_fallback_when_thread_has_no_entry(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "parent_chan": ChannelOverride(model="parent-model"),
@@ -98,7 +98,7 @@ class TestGetChannelOverride:
         )
         result = _get_channel_override(
             config,
-            Platform.DISCORD,
+            Platform.FEISHU,
             "thread_only",
             parent_id="parent_chan",
         )
@@ -108,7 +108,7 @@ class TestGetChannelOverride:
     def test_exact_thread_overrides_parent(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "thread_1": ChannelOverride(model="thread-model"),
@@ -118,7 +118,7 @@ class TestGetChannelOverride:
             },
         )
         result = _get_channel_override(
-            config, Platform.DISCORD, "thread_1", parent_id="parent_chan"
+            config, Platform.FEISHU, "thread_1", parent_id="parent_chan"
         )
         assert result.model == "thread-model"
 
@@ -127,7 +127,7 @@ class TestResolveModelForChannel:
     def test_uses_channel_override_when_present(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(model="anthropic/claude-opus-4.6"),
@@ -137,7 +137,7 @@ class TestResolveModelForChannel:
         )
         runner = object.__new__(GatewayRunner)
         runner.config = config
-        model = runner._resolve_model_for_channel(Platform.DISCORD, "chan_1")
+        model = runner._resolve_model_for_channel(Platform.FEISHU, "chan_1")
         assert model == "anthropic/claude-opus-4.6"
 
     def test_falls_back_to_global_when_no_override(self, monkeypatch):
@@ -147,12 +147,12 @@ class TestResolveModelForChannel:
         )
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(enabled=True, channel_overrides={}),
+                Platform.FEISHU: PlatformConfig(enabled=True, channel_overrides={}),
             },
         )
         runner = object.__new__(GatewayRunner)
         runner.config = config
-        model = runner._resolve_model_for_channel(Platform.DISCORD, "unknown_channel")
+        model = runner._resolve_model_for_channel(Platform.FEISHU, "unknown_channel")
         assert model == "global-model/default"
 
 
@@ -160,7 +160,7 @@ class TestGetSystemPromptForChannel:
     def test_uses_channel_override_when_present(self):
         config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(system_prompt="You are a coding assistant."),
@@ -171,17 +171,17 @@ class TestGetSystemPromptForChannel:
         runner = object.__new__(GatewayRunner)
         runner.config = config
         runner._ephemeral_system_prompt = "Global prompt"
-        prompt = runner._get_system_prompt_for_channel(Platform.DISCORD, "chan_1")
+        prompt = runner._get_system_prompt_for_channel(Platform.FEISHU, "chan_1")
         assert prompt == "You are a coding assistant."
 
     def test_falls_back_to_global_when_no_override(self):
         config = GatewayConfig(
-            platforms={Platform.DISCORD: PlatformConfig(enabled=True)},
+            platforms={Platform.FEISHU: PlatformConfig(enabled=True)},
         )
         runner = object.__new__(GatewayRunner)
         runner.config = config
         runner._ephemeral_system_prompt = "Global prompt"
-        prompt = runner._get_system_prompt_for_channel(Platform.DISCORD, "other")
+        prompt = runner._get_system_prompt_for_channel(Platform.FEISHU, "other")
         assert prompt == "Global prompt"
 
 
@@ -193,7 +193,7 @@ class TestResolveSessionAgentRuntimePriority:
         runner._session_model_overrides = {}
         runner.config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(
@@ -205,7 +205,7 @@ class TestResolveSessionAgentRuntimePriority:
             },
         )
         source = SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.FEISHU,
             chat_id="chan_1",
             user_id="u1",
         )
@@ -236,7 +236,7 @@ class TestResolveSessionAgentRuntimePriority:
         runner = object.__new__(GatewayRunner)
         runner.config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "chan_1": ChannelOverride(model="channel/model"),
@@ -252,7 +252,7 @@ class TestResolveSessionAgentRuntimePriority:
             },
         }
         source = SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.FEISHU,
             chat_id="chan_1",
             chat_type="channel",
             user_id="u1",
@@ -276,7 +276,7 @@ class TestResolveSessionAgentRuntimePriority:
         runner._session_model_overrides = {}
         runner.config = GatewayConfig(
             platforms={
-                Platform.DISCORD: PlatformConfig(
+                Platform.FEISHU: PlatformConfig(
                     enabled=True,
                     channel_overrides={
                         "parent_chan": ChannelOverride(model="parent/model"),
@@ -285,7 +285,7 @@ class TestResolveSessionAgentRuntimePriority:
             },
         )
         source = SessionSource(
-            platform=Platform.DISCORD,
+            platform=Platform.FEISHU,
             chat_id="thread_1",
             chat_type="thread",
             parent_chat_id="parent_chan",

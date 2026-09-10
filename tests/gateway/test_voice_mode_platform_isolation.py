@@ -22,16 +22,16 @@ class TestVoiceKeyHelper:
     def test_voice_key_format(self):
         """_voice_key returns 'platform:chat_id' format."""
         runner = _make_runner()
-        assert runner._voice_key(Platform.TELEGRAM, "123") == "telegram:123"
-        assert runner._voice_key(Platform.SLACK, "456") == "slack:456"
-        assert runner._voice_key(Platform.DISCORD, "789") == "discord:789"
+        assert runner._voice_key(Platform.FEISHU, "123") == "telegram:123"
+        assert runner._voice_key(Platform.FEISHU, "456") == "slack:456"
+        assert runner._voice_key(Platform.FEISHU, "789") == "discord:789"
 
     def test_voice_key_different_platforms_same_chat_id(self):
         """Same chat_id on different platforms yields different keys."""
         runner = _make_runner()
-        key_telegram = runner._voice_key(Platform.TELEGRAM, "123")
-        key_slack = runner._voice_key(Platform.SLACK, "123")
-        key_discord = runner._voice_key(Platform.DISCORD, "123")
+        key_telegram = runner._voice_key(Platform.FEISHU, "123")
+        key_slack = runner._voice_key(Platform.FEISHU, "123")
+        key_discord = runner._voice_key(Platform.FEISHU, "123")
         assert key_telegram != key_slack
         assert key_slack != key_discord
         assert key_telegram == "telegram:123"
@@ -47,18 +47,18 @@ class TestVoiceModePlatformIsolation:
         runner = _make_runner()
 
         # Enable voice mode for Telegram chat '123'
-        runner._voice_mode[runner._voice_key(Platform.TELEGRAM, "123")] = "all"
+        runner._voice_mode[runner._voice_key(Platform.FEISHU, "123")] = "all"
         # Enable voice mode for Slack chat '123' to a different mode
-        runner._voice_mode[runner._voice_key(Platform.SLACK, "123")] = "voice_only"
+        runner._voice_mode[runner._voice_key(Platform.FEISHU, "123")] = "voice_only"
 
         # Verify they are independent
-        assert runner._voice_mode.get(runner._voice_key(Platform.TELEGRAM, "123")) == "all"
-        assert runner._voice_mode.get(runner._voice_key(Platform.SLACK, "123")) == "voice_only"
+        assert runner._voice_mode.get(runner._voice_key(Platform.FEISHU, "123")) == "all"
+        assert runner._voice_mode.get(runner._voice_key(Platform.FEISHU, "123")) == "voice_only"
 
         # Disabling Telegram should not affect Slack
-        runner._voice_mode[runner._voice_key(Platform.TELEGRAM, "123")] = "off"
-        assert runner._voice_mode.get(runner._voice_key(Platform.TELEGRAM, "123")) == "off"
-        assert runner._voice_mode.get(runner._voice_key(Platform.SLACK, "123")) == "voice_only"
+        runner._voice_mode[runner._voice_key(Platform.FEISHU, "123")] = "off"
+        assert runner._voice_mode.get(runner._voice_key(Platform.FEISHU, "123")) == "off"
+        assert runner._voice_mode.get(runner._voice_key(Platform.FEISHU, "123")) == "voice_only"
 
 
 class TestLegacyKeyMigration:
@@ -154,7 +154,7 @@ class TestSyncVoiceModeStateToAdapter:
 
         # Create a mock Telegram adapter
         mock_adapter = MagicMock()
-        mock_adapter.platform = Platform.TELEGRAM
+        mock_adapter.platform = Platform.FEISHU
         mock_adapter._auto_tts_disabled_chats = set()
 
         runner._sync_voice_mode_state_to_adapter(mock_adapter)
@@ -171,7 +171,7 @@ class TestSyncVoiceModeStateToAdapter:
         }
 
         mock_adapter = MagicMock()
-        mock_adapter.platform = Platform.TELEGRAM
+        mock_adapter.platform = Platform.FEISHU
         mock_adapter._auto_tts_disabled_chats = {"old_chat_id", "another_old"}
 
         runner._sync_voice_mode_state_to_adapter(mock_adapter)

@@ -82,7 +82,7 @@ def _make_store(tmp_path, db_mock=None) -> SessionStore:
 
 def _source() -> SessionSource:
     return SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="12345",
         chat_type="dm",
         user_id="12345",
@@ -96,7 +96,7 @@ def _seed_entry(store, key, session_id) -> SessionEntry:
         session_id=session_id,
         created_at=now - timedelta(hours=2),
         updated_at=now - timedelta(hours=1),
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_type="dm",
     )
     store._entries[key] = entry
@@ -303,7 +303,7 @@ def test_legacy_and_off_lock_saves_share_one_serialization_lock(tmp_path):
     store = _make_store(tmp_path, db)
     source_a = _source()
     source_b = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="67890",
         chat_type="dm",
         user_id="67890",
@@ -347,7 +347,7 @@ def test_save_serialization_snapshots_latest_routing_index(tmp_path):
     store = _make_store(tmp_path, db)
     source_a = _source()
     source_b = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id="67890",
         chat_type="dm",
         user_id="67890",

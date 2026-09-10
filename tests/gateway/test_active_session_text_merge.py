@@ -49,7 +49,7 @@ def _make_event(
     thread_id: str | None = None,
 ) -> MessageEvent:
     source = SessionSource(
-        platform=Platform.TELEGRAM,
+        platform=Platform.FEISHU,
         chat_id=chat_id,
         chat_type=chat_type,
         user_id=user_id,
@@ -79,14 +79,14 @@ class _DummyAdapter(BasePlatformAdapter):  # type: ignore[misc]
 
 
 def _make_initialized_adapter() -> BasePlatformAdapter:
-    return _DummyAdapter(PlatformConfig(enabled=True, token="***"), Platform.TELEGRAM)
+    return _DummyAdapter(PlatformConfig(enabled=True, token="***"), Platform.FEISHU)
 
 
 def _make_adapter() -> BasePlatformAdapter:
     """Build a BasePlatformAdapter without running its heavy __init__."""
     adapter = object.__new__(_DummyAdapter)
     adapter.config = PlatformConfig(enabled=True, token="***")
-    adapter.platform = Platform.TELEGRAM
+    adapter.platform = Platform.FEISHU
     adapter._message_handler = AsyncMock(return_value=None)
     adapter._busy_session_handler = None
     adapter._active_sessions = {}

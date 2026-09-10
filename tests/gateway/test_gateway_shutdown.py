@@ -203,8 +203,8 @@ async def test_restart_shutdown_warning_uses_restart_command_reply_anchor_for_ac
     restart_source.message_id = "restart-command"
     runner._restart_requested = True
     runner._restart_command_source = restart_source
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id=source.chat_id,
         name="Telegram",
         thread_id=source.thread_id,
@@ -233,8 +233,8 @@ async def test_in_chat_restart_skips_home_shutdown_even_with_active_session():
     restart_source.message_id = "restart-command"
     runner._restart_requested = True
     runner._restart_command_source = restart_source
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id="home-chat",
         name="Telegram Home",
     )
@@ -255,8 +255,8 @@ async def test_idle_in_chat_restart_does_not_send_interruption_warning():
     source.message_id = "restart-command"
     runner._restart_requested = True
     runner._restart_command_source = source
-    runner.config.platforms[Platform.TELEGRAM].home_channel = HomeChannel(
-        platform=Platform.TELEGRAM,
+    runner.config.platforms[Platform.FEISHU].home_channel = HomeChannel(
+        platform=Platform.FEISHU,
         chat_id=source.chat_id,
         name="Telegram",
         thread_id=source.thread_id,
