@@ -33,7 +33,6 @@ Hermes Agent 是一个自改进 AI Agent 项目：Python 负责 CLI、Agent loop
 | `web/` | Vite/React Web dashboard | `web/src/` |
 | `apps/desktop/` | Electron 桌面壳 | `apps/desktop/src/`, `apps/desktop/electron/` |
 | `apps/shared/` | 前端 workspace 共享类型/JSON-RPC/计费工具 | `apps/shared/src/index.ts` |
-| `website/` | Docusaurus 官网文档站 | `website/docs/`, `website/src/` |
 | `plugins/` | 打包插件与插件 manifest | `plugins/*/plugin.yaml` |
 | `providers/` | Provider 抽象/基础类型 | `providers/base.py` |
 | `skills/`, `optional-skills/` | Hermes skills 文档 | `*/SKILL.md` |
@@ -123,7 +122,6 @@ Hermes Agent 是一个自改进 AI Agent 项目：Python 负责 CLI、Agent loop
 | TUI | `ui-tui/src/app.tsx`, `ui-tui/src/app/`, `ui-tui/src/components/` | `ui-tui/src/__tests__/` |
 | Web dashboard | `web/src/` | `apps/shared/src/`, web tests |
 | Desktop | `apps/desktop/src/`, `apps/desktop/electron/` | `apps/desktop/vitest.config.ts`, desktop tests |
-| Docs site | `website/docs/`, `website/docusaurus.config.ts` | `website/package.json` |
 
 ## 8. 注意事项
 

@@ -2603,24 +2603,6 @@ class TestMatrixDiagnostics:
             assert hasattr(MatrixAdapter, method), f"{capability} needs {method}"
         assert capabilities["E2EE"] == "off / optional / required"
 
-    def test_matrix_docs_capability_table_matches_declaration(self):
-        from pathlib import Path
-
-        from plugins.platforms.matrix.adapter import get_matrix_capabilities
-
-        docs = (
-            Path(__file__).resolve().parents[2]
-            / "website"
-            / "docs"
-            / "user-guide"
-            / "messaging"
-            / "matrix.md"
-        ).read_text()
-
-        for capability, status in get_matrix_capabilities().items():
-            assert f"| {capability} | {status} |" in docs
-
-
 class TestMatrixEncryptedSendFallback:
     @pytest.mark.asyncio
     async def test_send_retries_after_e2ee_error(self):
