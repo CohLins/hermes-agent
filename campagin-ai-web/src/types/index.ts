@@ -108,29 +108,71 @@ export interface TraceResult {
 
 /* ---------- 定时任务 ---------- */
 
-export type TaskStatus = "运行中" | "已暂停" | "执行失败" | "从未运行";
+export type TaskStatus = "运行中" | "已暂停" | "执行失败" | "从未运行" | "已完成";
+
+/** 任务结果推给谁：本人飞书私聊 / 指定群 / 不推送。 */
+export type TaskNotifyKind = "self" | "group" | "none";
 
 export interface ScheduledTask {
+  /** cron job id（12 位 hex）。 */
   key: string;
   name: string;
+  /** 任务内容，对应 cron job 的 prompt。 */
   summary: string;
+  /** 列表展示用的 cron 表达式，如 `0 9 * * *`、`every 30m`、`once in 5m`。 */
   frequency: string;
+  /** 用户自己写的中文频率原文（服务端 schedule_display），编辑时回填。 */
+  scheduleText: string;
+  /** 表达式的中文读法，鼠标悬停在频率上时显示。 */
+  frequencyHint: string;
   nextRunAt: string;
   lastRunAt: string;
+  createdAt: string;
   status: TaskStatus;
+  /** 创建人姓名，取飞书通讯录的 name。 */
   owner: string;
+  /** 通知对象的展示文案。 */
   notify: string;
-  dataRange: string;
-  runs: TaskRun[];
+  notifyKind: TaskNotifyKind;
+  notifyChatId?: string;
+  lastError?: string;
 }
 
+/** 一次执行尝试，来自 cron 的执行账本（cron/executions.py）。 */
 export interface TaskRun {
   key: string;
+  /** 所属任务名，仅跨任务历史里有值。 */
+  taskName: string;
   startedAt: string;
   finishedAt: string;
-  result: "成功" | "失败";
-  tools: string;
+  /** 本次执行耗时，账本只记时刻所以由前端算。 */
+  duration: string;
+  result: "成功" | "失败" | "进行中" | "未知";
+  /** 触发来源：定时调度还是手动触发。 */
+  source: string;
   error?: string;
+}
+
+/** 中文频率的解析预览结果。 */
+export interface SchedulePreview {
+  /** 存进 cron 的表达式，如 `0 9 * * *`、`every 30m`。 */
+  schedule: string;
+  kind: string;
+  /** 用户输入的原文；与输入框当前内容比对，判断回显是否还对得上。 */
+  display: string;
+  /** 表达式的中文读法，例如「每天 09:00 执行」。 */
+  description: string;
+  /** 接下来几次执行时间（ISO），一次看不出误解，几次就能。 */
+  nextRuns: string[];
+  /** 一次性任务：只跑一次，跑完即结束。 */
+  once: boolean;
+  /** rule=规则命中，passthrough=本身就是表达式，llm=模型解析。 */
+  source: string;
+}
+
+export interface FeishuChatOption {
+  chatId: string;
+  name: string;
 }
 
 /* ---------- 告警 ---------- */

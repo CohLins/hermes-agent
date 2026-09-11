@@ -233,6 +233,54 @@ class WebAuthService:
             ]
             self._save_runtime(runtime)
 
+    def feishu_identities(self, user_id: str) -> list[dict[str, str]]:
+        """Return every Feishu identity bound to a web account.
+
+        Same shape ``_feishu_record`` persists: the primary identity first,
+        then its fallbacks, each ``{"kind": ..., "subject": ...}``. Unknown or
+        unbound accounts yield an empty list.
+        """
+        with self._lock:
+            user = self._find_user_by_id(self._load_users(), str(user_id or ""))
+        if user is None:
+            return []
+        feishu = user.get("feishu")
+        if not isinstance(feishu, dict):
+            return []
+        identities: list[dict[str, str]] = []
+        for candidate in (feishu, *(feishu.get("fallbacks") or [])):
+            if not isinstance(candidate, dict):
+                continue
+            kind = str(candidate.get("kind") or "").strip()
+            subject = str(candidate.get("subject") or "").strip()
+            if kind and subject:
+                identities.append({"kind": kind, "subject": subject})
+        return identities
+
+    def feishu_subject(self, user_id: str, kind: str) -> str | None:
+        """Return the bound Feishu subject for ``kind`` (e.g. ``open_id``)."""
+        for identity in self.feishu_identities(user_id):
+            if identity["kind"] == kind:
+                return identity["subject"]
+        return None
+
+    def cron_owner_id(self, user_id: str) -> str | None:
+        """Return the cron ``origin.user_id`` this web account owns.
+
+        Must match what the Feishu adapter puts on a messaging session:
+        ``_resolve_sender_profile`` prefers the tenant-scoped ``user_id`` and
+        falls back to the app-scoped ``open_id``. Cron's per-user isolation
+        (``tools/cronjob_tools.py`` ``_job_owned_by``) compares that exact
+        value, so a different precedence here would split one person's jobs
+        into two halves invisible to each other across web and Feishu.
+        """
+        subjects = {identity["kind"]: identity["subject"] for identity in self.feishu_identities(user_id)}
+        return subjects.get("user_id") or subjects.get("open_id")
+
+    def owner_subjects(self, user_id: str) -> set[str]:
+        """Every Feishu subject that may appear as a job's ``origin.user_id``."""
+        return {identity["subject"] for identity in self.feishu_identities(user_id)}
+
     def _load_users(self) -> dict[str, Any]:
         if not self._users_path.exists():
             return {"version": 1, "users": []}

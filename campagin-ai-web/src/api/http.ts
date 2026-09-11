@@ -15,7 +15,8 @@ import { getWebCsrfToken, setWebCsrfToken } from "./auth";
 
 /** api_server 的错误体统一是 {"error": {"message", "type", "code"}}。 */
 interface ApiErrorBody {
-  error?: { message?: string; code?: string; type?: string };
+  /** cron 的 /api/jobs 系列直接返回 {"error": "文案"}，其余端点是嵌套对象。 */
+  error?: string | { message?: string; code?: string; type?: string };
 }
 
 export class AgentApiError extends ApiError {
@@ -47,8 +48,12 @@ export async function toApiError(res: Response): Promise<AgentApiError> {
   let code: string | undefined;
   try {
     const body = (await res.json()) as ApiErrorBody;
-    message = body.error?.message ?? "";
-    code = body.error?.code;
+    if (typeof body.error === "string") {
+      message = body.error;
+    } else {
+      message = body.error?.message ?? "";
+      code = body.error?.code;
+    }
   } catch {
     // 非 JSON 响应（如代理层的 502），走下面的兜底文案。
   }

@@ -18,6 +18,15 @@ export function toneOfCapabilityStatus(status: string): PillTone {
 export function toneOfTaskStatus(status: string): PillTone {
   if (status === "运行中") return "success";
   if (status === "执行失败") return "danger";
+  // 「已完成」是一次性任务的正常终点，不是需要处理的状态。
+  if (status === "已完成") return "neutral";
+  return "warn";
+}
+
+export function toneOfRunResult(result: string): PillTone {
+  if (result === "成功") return "success";
+  if (result === "失败") return "danger";
+  // 「进行中」「未知」都还没有结论，用告警色提示需要关注。
   return "warn";
 }
 

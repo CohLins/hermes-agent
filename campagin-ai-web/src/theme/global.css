@@ -210,6 +210,16 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.018em; }
 .user-text { flex: 1; min-width: 0; }
 .user-name { font-weight: 600; }
 .user-role, .field-help { color: var(--muted); font-size: 11px; }
+/* 宽表里的单元格：超出就截断，完整内容交给悬停提示。
+   用它而不是 antd 的 column.ellipsis —— 后者会把 tableLayout 切成 fixed，
+   固定列所需的流式列就失效了。 */
+.cell-clip {
+  display: block;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .user-logout {
   padding: 0;
   border: 0;

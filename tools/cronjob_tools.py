@@ -304,6 +304,11 @@ def _origin_from_env() -> Optional[Dict[str, str]]:
             # send_message, which passes HERMES_SESSION_USER_ID to
             # gateway.mirror.mirror_to_session. Harmless for DMs/shared sessions.
             "user_id": get_session_env("HERMES_SESSION_USER_ID") or None,
+            # Display name of the creator. Purely cosmetic — the web
+            # workbench shows it in the task list's creator column so a job
+            # created from Feishu doesn't have to be resolved back through
+            # the contact API on every read.
+            "user_name": get_session_env("HERMES_SESSION_USER_NAME") or None,
         }
     return None
 

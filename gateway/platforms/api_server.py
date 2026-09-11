@@ -1027,6 +1027,11 @@ class APIServerAdapter(BasePlatformAdapter):
         self._pending_agent_requests: int = 0
         self._web_auth_service: Optional[Any] = None
         self._web_auth_attempts: Dict[tuple[str, str], list[float]] = {}
+        # web_user_id -> (expires_at_monotonic, groups) for the task form's
+        # group picker.
+        self._web_chat_cache: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+        # (web_user_id, sentence) -> (expires_at_monotonic, resolved schedule)
+        self._schedule_preview_cache: Dict[tuple[str, str], tuple[float, Dict[str, Any]]] = {}
         self._web_auth_lock = asyncio.Semaphore(2)
 
     @property
@@ -1080,26 +1085,38 @@ class APIServerAdapter(BasePlatformAdapter):
         host = request.headers.get("X-Forwarded-Host", request.host)
         return hmac.compare_digest(origin, f"{scheme}://{host}".rstrip("/"))
 
-    def _web_request_allowed(self, request: "web.Request", *, csrf: bool = False) -> Optional["web.Response"]:
+    def _web_session_or_error(
+        self, request: "web.Request", *, csrf: bool = False
+    ) -> tuple[Optional[Any], Optional["web.Response"]]:
+        """Authenticate a browser request and hand back its session.
+
+        Returns ``(session, None)`` once origin, cookie and (optionally) CSRF
+        all check out, else ``(None, error_response)``. Handlers behind
+        ``_web_protected_handler`` need the *identity*, not just the verdict —
+        per-user cron scoping is derived from it.
+        """
         if not self._web_same_origin(request):
-            return web.json_response(
+            return None, web.json_response(
                 {"error": {"message": "Cross-origin request rejected", "type": "authentication_error", "code": "origin_invalid"}},
                 status=403,
             )
         session = self._web_session_from_request(request)
         if session is None:
-            return self._web_auth_error()
+            return None, self._web_auth_error()
         if csrf:
             service = self._web_auth()
             if service is None or not service.verify_csrf(
                 token=request.cookies.get("hermes_web_session", ""),
                 csrf_token=request.headers.get("X-CSRF-Token", ""),
             ):
-                return web.json_response(
+                return None, web.json_response(
                     {"error": {"message": "Invalid CSRF token", "type": "authentication_error", "code": "csrf_invalid"}},
                     status=403,
                 )
-        return None
+        return session, None
+
+    def _web_request_allowed(self, request: "web.Request", *, csrf: bool = False) -> Optional["web.Response"]:
+        return self._web_session_or_error(request, csrf=csrf)[1]
 
     def _web_auth_rate_limited(self, request: "web.Request", action: str) -> bool:
         now = time.monotonic()
@@ -1210,9 +1227,16 @@ class APIServerAdapter(BasePlatformAdapter):
     def _web_protected_handler(self, handler: Any) -> Any:
         @wraps(handler)
         async def wrapped(request: "web.Request") -> "web.Response":
-            error = self._web_request_allowed(request, csrf=request.method not in {"GET", "HEAD", "OPTIONS"})
+            session, error = self._web_session_or_error(
+                request, csrf=request.method not in {"GET", "HEAD", "OPTIONS"}
+            )
             if error:
                 return error
+            # Hand the authenticated identity to the shared handler. Its
+            # presence is also the "this is a browser call" signal: the bare
+            # /api/* routes (API-key callers: CLI, scripts, the gateway
+            # itself) never set it and keep their unscoped admin view.
+            request["web_session"] = session
             return await handler(request)
 
         return wrapped
@@ -1433,6 +1457,102 @@ class APIServerAdapter(BasePlatformAdapter):
             origin["real_ip"] = ctx["real_ip"]
         if ctx.get("user_agent"):
             origin["user_agent"] = ctx["user_agent"]
+        return origin
+
+    # ------------------------------------------------------------------
+    # Per-user cron scoping (browser sessions)
+    # ------------------------------------------------------------------
+
+    def _web_cron_scope(self, request: "web.Request") -> Optional[Dict[str, Any]]:
+        """Resolve the cron ownership scope for a browser request.
+
+        ``None`` means "not a browser call": API-key callers (CLI, scripts,
+        the gateway itself) keep the unscoped admin view they always had.
+
+        A logged-in account whose Feishu binding cannot be read still gets a
+        scope — with an empty subject set it simply owns nothing beyond the
+        jobs it created through the web itself.
+        """
+        session = request.get("web_session")
+        if session is None:
+            return None
+        web_user_id = str(getattr(session, "user_id", "") or "")
+        subjects: set = set()
+        owner_id: Optional[str] = None
+        open_id: Optional[str] = None
+        service = self._web_auth()
+        if service is not None and web_user_id:
+            try:
+                subjects = set(service.owner_subjects(web_user_id))
+                owner_id = service.cron_owner_id(web_user_id)
+                open_id = service.feishu_subject(web_user_id, "open_id")
+            except Exception:
+                logger.exception("Cron scope: failed to resolve Feishu identities")
+        return {
+            "web_user_id": web_user_id,
+            "owner_subjects": subjects,
+            "owner_id": owner_id,
+            "open_id": open_id,
+            "email": str(getattr(session, "email", "") or ""),
+        }
+
+    @staticmethod
+    def _job_visible_to_scope(job: Any, scope: Dict[str, Any]) -> bool:
+        """Whether a browser session may read or act on a cron job.
+
+        Two ways to own a job, which is what makes web and Feishu one view of
+        one task list:
+
+        * ``origin.web_user_id`` — created from this browser account.
+        * ``origin.user_id`` in the account's Feishu subjects — created by the
+          same person talking to the Feishu assistant (the identity cron's own
+          isolation uses, ``tools/cronjob_tools.py`` ``_job_owned_by``).
+        """
+        origin = job.get("origin") if isinstance(job, dict) else None
+        if not isinstance(origin, dict):
+            return False
+        web_user_id = str(origin.get("web_user_id") or "")
+        if web_user_id and web_user_id == scope.get("web_user_id"):
+            return True
+        owner = str(origin.get("user_id") or "")
+        subjects = scope.get("owner_subjects") or set()
+        return bool(owner) and owner in subjects
+
+    @staticmethod
+    def _web_dm_chat_id(scope: Dict[str, Any]) -> Optional[str]:
+        """Delivery target for "notify me": the creator's own Feishu DM.
+
+        The Feishu adapter's send path accepts a bare ``ou_`` open_id or the
+        ``feishu_user_id:<user_id>`` form as a receive id, so either binding
+        is enough to reach the person without knowing their DM chat_id.
+        """
+        open_id = scope.get("open_id")
+        if open_id:
+            return str(open_id)
+        owner_id = scope.get("owner_id")
+        if owner_id:
+            return f"feishu_user_id:{owner_id}"
+        return None
+
+    def _web_cron_origin(self, scope: Dict[str, Any]) -> Dict[str, Any]:
+        """Origin stamped on jobs created from the web workbench.
+
+        ``user_id`` deliberately carries the *Feishu* subject rather than the
+        web account id: that is the field cron's per-user isolation compares,
+        so a job created here is owned by the same person on both ends.
+        """
+        origin: Dict[str, Any] = {
+            "platform": "feishu",
+            "source": "campaign_web",
+            "web_user_id": scope.get("web_user_id"),
+        }
+        chat_id = self._web_dm_chat_id(scope)
+        if chat_id:
+            origin["chat_id"] = chat_id
+        if scope.get("owner_id"):
+            origin["user_id"] = scope["owner_id"]
+        if scope.get("user_name"):
+            origin["user_name"] = scope["user_name"]
         return origin
 
     # ------------------------------------------------------------------
@@ -1714,6 +1834,13 @@ class APIServerAdapter(BasePlatformAdapter):
             ("POST", "/api/platforms/{platform}/events", self._handle_platform_event_callback),
             ("GET", "/api/jobs", self._handle_list_jobs),
             ("POST", "/api/jobs", self._handle_create_job),
+            # Static job paths must precede the {job_id} wildcard: aiohttp
+            # resolves resources in registration order.
+            ("GET", "/api/jobs/metrics", self._handle_jobs_metrics),
+            ("GET", "/api/jobs/executions", self._handle_executions_history),
+            ("POST", "/api/jobs/parse-schedule", self._handle_parse_schedule),
+            ("GET", "/api/jobs/{job_id}/executions", self._handle_job_executions),
+            ("GET", "/api/feishu/chats", self._handle_feishu_chats),
             ("GET", "/api/jobs/{job_id}", self._handle_get_job),
             ("PATCH", "/api/jobs/{job_id}", self._handle_update_job),
             ("DELETE", "/api/jobs/{job_id}", self._handle_delete_job),
@@ -4467,9 +4594,25 @@ class APIServerAdapter(BasePlatformAdapter):
 
     _JOB_ID_RE = __import__("re").compile(r"[a-f0-9]{12}")
     # Allowed fields for update — prevents clients injecting arbitrary keys
-    _UPDATE_ALLOWED_FIELDS = {"name", "schedule", "prompt", "deliver", "skills", "skill", "repeat", "enabled"}
+    _UPDATE_ALLOWED_FIELDS = {
+        "name", "schedule", "schedule_display", "prompt", "deliver",
+        "skills", "skill", "repeat", "enabled",
+    }
     _MAX_NAME_LENGTH = 200
     _MAX_PROMPT_LENGTH = 5000
+    # The web form's frequency field is one sentence ("每天早上 9 点"), not prose.
+    _MAX_SCHEDULE_TEXT_LENGTH = 200
+    # Feishu group ids look like oc_<32 hex>; keep the bound loose enough to
+    # survive an id-format change but tight enough to reject junk.
+    _FEISHU_CHAT_ID_RE = re.compile(r"oc_[0-9a-zA-Z]{16,64}")
+    # Group rosters change far slower than a form is filled in.
+    _WEB_CHAT_CACHE_TTL_SECONDS = 60.0
+    # How long a resolved frequency sentence stays reusable. The form previews
+    # a sentence, the user eyeballs the echo, then submits — replaying the
+    # cached result keeps what gets stored identical to what was shown (and
+    # skips a second model call).
+    _SCHEDULE_PREVIEW_TTL_SECONDS = 600.0
+    _SCHEDULE_PREVIEW_CACHE_MAX = 200
 
     @staticmethod
     def _check_jobs_available() -> Optional["web.Response"]:
@@ -4494,6 +4637,287 @@ class APIServerAdapter(BasePlatformAdapter):
             )
         return job_id, None
 
+    def _scope_denies_job(
+        self, request: "web.Request", job_id: str
+    ) -> Optional["web.Response"]:
+        """Return a 404 when a browser session may not touch ``job_id``.
+
+        The response is identical to a genuinely missing job, so a caller
+        cannot probe for the existence of someone else's task — the same
+        no-existence-leak rule cron's own tool applies in
+        ``tools/cronjob_tools.py`` ``_job_not_found_response``.
+
+        ``None`` for API-key callers: they keep the unscoped admin view.
+        """
+        scope = self._web_cron_scope(request)
+        if scope is None:
+            return None
+        try:
+            job = _cron_get(job_id)
+        except Exception as e:
+            return web.json_response({"error": _redact_api_error_text(e)}, status=500)
+        if not job or not self._job_visible_to_scope(job, scope):
+            return web.json_response({"error": "Job not found"}, status=404)
+        return None
+
+    async def _annotate_job_owner_names(
+        self, request: "web.Request", jobs: List[Dict[str, Any]], scope: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Attach a display ``owner_name`` to each job for the web table.
+
+        Jobs created once ``origin.user_name`` existed carry the name already.
+        For the older ones, note that a scoped listing only ever contains the
+        logged-in user's own jobs — so one lookup for *this* account fills in
+        every gap, and the adapter caches it. Name resolution is cosmetic:
+        every failure degrades to ``None``, never to an error.
+        """
+        needs_lookup = any(
+            not (job.get("origin") or {}).get("user_name") for job in jobs
+        )
+        fallback = (
+            await self._resolve_web_owner_name(request, scope) if needs_lookup else None
+        )
+        for job in jobs:
+            job["owner_name"] = (job.get("origin") or {}).get("user_name") or fallback or None
+        return jobs
+
+    def _cached_schedule_preview(
+        self, scope: Optional[Dict[str, Any]], text: str
+    ) -> Optional[Dict[str, Any]]:
+        """Return a previously previewed resolution of ``text``, if still fresh."""
+        key = (str((scope or {}).get("web_user_id") or ""), text)
+        entry = self._schedule_preview_cache.get(key)
+        if entry is None:
+            return None
+        if entry[0] <= time.monotonic():
+            self._schedule_preview_cache.pop(key, None)
+            return None
+        return entry[1]
+
+    def _remember_schedule_preview(
+        self, scope: Optional[Dict[str, Any]], text: str, resolved: Dict[str, Any]
+    ) -> None:
+        now = time.monotonic()
+        cache = self._schedule_preview_cache
+        if len(cache) >= self._SCHEDULE_PREVIEW_CACHE_MAX:
+            for stale_key in [key for key, entry in cache.items() if entry[0] <= now]:
+                cache.pop(stale_key, None)
+            while len(cache) >= self._SCHEDULE_PREVIEW_CACHE_MAX:
+                cache.pop(next(iter(cache)), None)
+        key = (str((scope or {}).get("web_user_id") or ""), text)
+        cache[key] = (now + self._SCHEDULE_PREVIEW_TTL_SECONDS, resolved)
+
+    async def _resolve_web_schedule(
+        self, text: str, scope: Optional[Dict[str, Any]] = None
+    ) -> tuple[Optional[Dict[str, Any]], Optional["web.Response"]]:
+        """Resolve the form's frequency sentence into a cron schedule.
+
+        A sentence the form already previewed is replayed from cache instead
+        of being resolved again. That is not just a saved model call: a second
+        LLM pass could answer differently, and then the job would not run at
+        the time the user approved in the echo.
+
+        Runs the parse off the event loop and turns a parse failure into the
+        guidance string the user should see verbatim.
+        """
+        from cron.schedule_text import ScheduleParseUnavailable, parse_schedule_text
+
+        raw = str(text or "").strip()
+        if not raw:
+            return None, web.json_response({"error": "Schedule is required"}, status=400)
+        if len(raw) > self._MAX_SCHEDULE_TEXT_LENGTH:
+            return None, web.json_response(
+                {"error": f"Schedule text must be ≤ {self._MAX_SCHEDULE_TEXT_LENGTH} characters"},
+                status=400,
+            )
+        cached = self._cached_schedule_preview(scope, raw)
+        if cached is not None:
+            return cached, None
+        try:
+            resolved = await asyncio.to_thread(parse_schedule_text, raw)
+        except ScheduleParseUnavailable:
+            # The sentence was never judged — don't tell the user to rewrite it.
+            return None, web.json_response(
+                {"error": "解析服务暂时不可用，请稍后再点「解析」重试"}, status=503
+            )
+        except ValueError as exc:
+            return None, web.json_response({"error": str(exc)}, status=400)
+        except Exception as exc:
+            return None, web.json_response({"error": _redact_api_error_text(exc)}, status=500)
+        self._remember_schedule_preview(scope, raw, resolved)
+        return resolved, None
+
+    @staticmethod
+    def _web_member_identity(scope: Dict[str, Any]) -> tuple[Optional[str], str]:
+        """The (subject, id_type) pair to check group membership with.
+
+        ``open_id`` first on purpose: the group-member API accepts it with
+        only the IM scopes the bot already holds, while a ``user_id`` lookup
+        additionally needs ``contact:user.employee_id:readonly``. Without that
+        scope the check fails closed (no groups offered) rather than open.
+        """
+        if scope.get("open_id"):
+            return str(scope["open_id"]), "open_id"
+        if scope.get("owner_id"):
+            return str(scope["owner_id"]), "user_id"
+        return None, ""
+
+    async def _web_user_group_chats(
+        self, request: "web.Request", scope: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Groups that BOTH the assistant and this user belong to.
+
+        The assistant's own group list is not the right answer: any logged-in
+        account could otherwise route task output into a group it was never
+        part of. Membership is verified per group and cached briefly.
+        """
+        cache_key = str(scope.get("web_user_id") or "")
+        now = time.monotonic()
+        cached = self._web_chat_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return cached[1]
+
+        adapter = self._get_platform_callback_adapter(request, "feishu")
+        lister = getattr(adapter, "list_group_chats", None)
+        member_check = getattr(adapter, "chat_has_member", None)
+        subject, id_type = self._web_member_identity(scope)
+        if subject and id_type != "open_id":
+            logger.info(
+                "Feishu group picker falling back to %s membership checks; if they all "
+                "fail the app is missing contact:user.employee_id:readonly",
+                id_type,
+            )
+        chats: List[Dict[str, Any]] = []
+        if subject and callable(lister) and callable(member_check):
+            try:
+                candidates = await lister()
+            except Exception:
+                logger.warning("Feishu group listing failed", exc_info=True)
+                candidates = []
+            for chat in candidates:
+                chat_id = str(chat.get("chat_id") or "")
+                if not chat_id:
+                    continue
+                try:
+                    if await member_check(chat_id, subject, id_type):
+                        chats.append({"chat_id": chat_id, "name": chat.get("name") or chat_id})
+                except Exception:
+                    logger.debug(
+                        "Feishu membership check failed for %s", chat_id, exc_info=True
+                    )
+        self._web_chat_cache[cache_key] = (now + self._WEB_CHAT_CACHE_TTL_SECONDS, chats)
+        return chats
+
+    async def _resolve_web_deliver(
+        self, request: "web.Request", body: Dict[str, Any], scope: Dict[str, Any]
+    ) -> tuple[Optional[str], Optional["web.Response"]]:
+        """Map the form's notify choice onto a cron ``deliver`` value."""
+        notify = body.get("notify")
+        if isinstance(notify, dict):
+            kind = str(notify.get("kind") or "").strip().lower()
+            chat_id = str(notify.get("chat_id") or "").strip()
+        else:
+            kind = str(notify or "").strip().lower()
+            chat_id = ""
+
+        if kind in {"", "self", "me", "dm"}:
+            if not self._web_dm_chat_id(scope):
+                return None, web.json_response(
+                    {"error": "当前账号还没有绑定飞书身份，无法推送到私聊"}, status=400
+                )
+            return "origin", None
+
+        if kind == "group":
+            if not self._FEISHU_CHAT_ID_RE.fullmatch(chat_id):
+                return None, web.json_response({"error": "群 ID 格式不正确"}, status=400)
+            allowed = await self._web_user_group_chats(request, scope)
+            if chat_id not in {chat["chat_id"] for chat in allowed}:
+                return None, web.json_response(
+                    {"error": "只能选择你和助手都在的群"}, status=400
+                )
+            return f"feishu:{chat_id}", None
+
+        if kind in {"none", "local"}:
+            return "local", None
+
+        return None, web.json_response({"error": "通知对象不合法"}, status=400)
+
+    async def _resolve_web_owner_name(
+        self, request: "web.Request", scope: Dict[str, Any]
+    ) -> Optional[str]:
+        """Best-effort display name for the task list's creator column.
+
+        ``open_id`` first: the contact lookup accepts it under the scopes the
+        bot already holds, while resolving a tenant ``user_id`` additionally
+        needs ``contact:user.employee_id:readonly``. Wrong order here and the
+        creator column silently goes blank.
+        """
+        subject = scope.get("open_id") or scope.get("owner_id")
+        if not subject:
+            return None
+        adapter = self._get_platform_callback_adapter(request, "feishu")
+        resolver = getattr(adapter, "_resolve_sender_name_from_api", None)
+        if not callable(resolver):
+            return None
+        try:
+            return await resolver(str(subject))
+        except Exception:
+            logger.debug("Cron owner name lookup failed for %s", subject, exc_info=True)
+            return None
+
+    async def _web_cron_origin_with_name(
+        self, request: "web.Request", scope: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build the web job origin, including the creator's display name."""
+        enriched = dict(scope)
+        enriched["user_name"] = await self._resolve_web_owner_name(request, scope)
+        return self._web_cron_origin(enriched)
+
+    @staticmethod
+    def _annotate_owner_name_inline(job: Dict[str, Any]) -> Dict[str, Any]:
+        """Mirror ``origin.user_name`` onto the response shape list uses."""
+        job["owner_name"] = (job.get("origin") or {}).get("user_name") or None
+        return job
+
+    @staticmethod
+    def _finalize_web_job(
+        job: Dict[str, Any], *, schedule_text: str, enabled: bool, once: bool = False
+    ) -> Dict[str, Any]:
+        """Reconcile a freshly created job with what the workbench needs.
+
+        ``create_job`` is written for the command line and differs from the
+        web form in three ways:
+
+        * it derives ``schedule_display`` from the parsed expression, while
+          the form wants the sentence the user actually typed (so the task
+          list and the Feishu assistant read identically);
+        * it always stores ``enabled=True``, while the form defaults to
+          "create paused, enable after review";
+        * it forces ``repeat=1`` on one-shots — and a repeat-limited job is
+          DELETED the instant it finishes (``mark_job_run`` pops the record).
+          That suits "remind me in 30 minutes" on a CLI, but here the task
+          must stay listed as 已完成 beside its execution record. Passing
+          ``repeat=0`` to ``create_job`` cannot express this (0 normalizes to
+          None, which the one-shot branch then turns back into 1), so clear
+          the limit here. It cannot re-fire: once ``last_run_at`` is set,
+          ``_recoverable_oneshot_run_at`` never re-arms the schedule.
+        """
+        updates: Dict[str, Any] = {}
+        if schedule_text and schedule_text != job.get("schedule_display"):
+            # update_job only revisits schedule_display when "schedule" is
+            # part of the same update, so pass the already-parsed dict back.
+            updates["schedule"] = job.get("schedule")
+            updates["schedule_display"] = schedule_text
+        if once:
+            updates["repeat"] = {"times": None, "completed": 0}
+        if updates:
+            job = _cron_update(job["id"], updates) or job
+        if not enabled:
+            job = _cron_pause(
+                job["id"], "created from the web workbench; enable it to start"
+            ) or job
+        return job
+
     async def _handle_list_jobs(self, request: "web.Request") -> "web.Response":
         """GET /api/jobs — list all cron jobs."""
         auth_err = self._check_auth(request)
@@ -4503,8 +4927,18 @@ class APIServerAdapter(BasePlatformAdapter):
         if cron_err:
             return cron_err
         try:
-            include_disabled = request.query.get("include_disabled", "").lower() in {"true", "1"}
+            scope = self._web_cron_scope(request)
+            # A browser always needs the paused ones too: jobs created from
+            # the web start disabled, pending an explicit enable.
+            include_disabled = (
+                True
+                if scope is not None
+                else request.query.get("include_disabled", "").lower() in {"true", "1"}
+            )
             jobs = _cron_list(include_disabled=include_disabled)
+            if scope is not None:
+                jobs = [job for job in jobs if self._job_visible_to_scope(job, scope)]
+                await self._annotate_job_owner_names(request, jobs, scope)
             return web.json_response({"jobs": jobs})
         except Exception as e:
             return web.json_response({"error": _redact_api_error_text(e)}, status=500)
@@ -4519,12 +4953,29 @@ class APIServerAdapter(BasePlatformAdapter):
             return cron_err
         try:
             body = await request.json()
+            scope = self._web_cron_scope(request)
+            resolved: Optional[Dict[str, Any]] = None
             name = (body.get("name") or "").strip()
             schedule = (body.get("schedule") or "").strip()
+            schedule_text = (body.get("schedule_text") or "").strip()
             prompt = body.get("prompt", "")
             deliver = body.get("deliver", "local")
             skills = body.get("skills")
             repeat = body.get("repeat")
+
+            if scope is not None:
+                # Resolve the sentence the user typed server-side rather than
+                # trusting the expression the preview call handed the browser.
+                resolved, schedule_error = await self._resolve_web_schedule(
+                    schedule_text or schedule, scope
+                )
+                if schedule_error:
+                    return schedule_error
+                schedule = resolved["schedule"]
+                schedule_text = resolved["display"]
+                deliver, deliver_error = await self._resolve_web_deliver(request, body, scope)
+                if deliver_error:
+                    return deliver_error
 
             if not name:
                 return web.json_response({"error": "Name is required"}, status=400)
@@ -4550,7 +5001,11 @@ class APIServerAdapter(BasePlatformAdapter):
                 "schedule": schedule,
                 "name": name,
                 "deliver": deliver,
-                "origin": self._cron_origin_from_request(request),
+                "origin": (
+                    await self._web_cron_origin_with_name(request, scope)
+                    if scope is not None
+                    else self._cron_origin_from_request(request)
+                ),
             }
             if skills:
                 kwargs["skills"] = skills
@@ -4558,6 +5013,18 @@ class APIServerAdapter(BasePlatformAdapter):
                 kwargs["repeat"] = repeat
 
             job = _cron_create(**kwargs)
+            if scope is not None:
+                job = self._finalize_web_job(
+                    job,
+                    schedule_text=schedule_text,
+                    # A one-shot cannot start paused: by the time someone
+                    # enables it its moment has passed, and resume_job then
+                    # refuses the job outright ("one-shot time is in the
+                    # past"). Creating one IS the confirmation.
+                    enabled=bool(body.get("enabled")) or bool((resolved or {}).get("once")),
+                    once=bool((resolved or {}).get("once")),
+                )
+                self._annotate_owner_name_inline(job)
             _notify_cron_provider_jobs_changed()
             return web.json_response({"job": job})
         except Exception as e:
@@ -4574,6 +5041,9 @@ class APIServerAdapter(BasePlatformAdapter):
         job_id, id_err = self._check_job_id(request)
         if id_err:
             return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
         try:
             job = _cron_get(job_id)
             if not job:
@@ -4593,10 +5063,32 @@ class APIServerAdapter(BasePlatformAdapter):
         job_id, id_err = self._check_job_id(request)
         if id_err:
             return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
         try:
             body = await request.json()
             # Whitelist allowed fields to prevent arbitrary key injection
             sanitized = {k: v for k, v in body.items() if k in self._UPDATE_ALLOWED_FIELDS}
+            scope = self._web_cron_scope(request)
+            if scope is not None:
+                # The browser edits a sentence and a notify choice, not a cron
+                # expression — resolve both here, the same way create does, so
+                # an edited frequency keeps its wording on display.
+                schedule_text = (body.get("schedule_text") or "").strip()
+                if schedule_text:
+                    resolved, schedule_error = await self._resolve_web_schedule(
+                        schedule_text, scope
+                    )
+                    if schedule_error:
+                        return schedule_error
+                    sanitized["schedule"] = resolved["schedule"]
+                    sanitized["schedule_display"] = resolved["display"]
+                if body.get("notify") is not None:
+                    deliver, deliver_error = await self._resolve_web_deliver(request, body, scope)
+                    if deliver_error:
+                        return deliver_error
+                    sanitized["deliver"] = deliver
             if not sanitized:
                 return web.json_response({"error": "No valid fields to update"}, status=400)
             # Validate lengths if present
@@ -4631,6 +5123,9 @@ class APIServerAdapter(BasePlatformAdapter):
         job_id, id_err = self._check_job_id(request)
         if id_err:
             return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
         try:
             success = _cron_remove(job_id)
             if not success:
@@ -4651,6 +5146,9 @@ class APIServerAdapter(BasePlatformAdapter):
         job_id, id_err = self._check_job_id(request)
         if id_err:
             return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
         try:
             job = _cron_pause(job_id)
             if not job:
@@ -4671,6 +5169,9 @@ class APIServerAdapter(BasePlatformAdapter):
         job_id, id_err = self._check_job_id(request)
         if id_err:
             return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
         try:
             job = _cron_resume(job_id)
             if not job:
@@ -4694,11 +5195,257 @@ class APIServerAdapter(BasePlatformAdapter):
         job_id, id_err = self._check_job_id(request)
         if id_err:
             return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
         try:
             job = _cron_trigger(job_id)
             if not job:
                 return web.json_response({"error": "Job not found"}, status=404)
             return web.json_response({"job": job})
+        except Exception as e:
+            return web.json_response({"error": _redact_api_error_text(e)}, status=500)
+
+    async def _handle_parse_schedule(self, request: "web.Request") -> "web.Response":
+        """POST /api/jobs/parse-schedule — preview a frequency sentence.
+
+        Lets the task form show what it understood ("每天早上 9 点" → ``0 9 * * *``,
+        next run tomorrow 09:00) before anything is persisted, so a rule or
+        LLM misreading is visible instead of silently scheduled.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        cron_err = self._check_jobs_available()
+        if cron_err:
+            return cron_err
+        body, error = await self._read_json_body(request)
+        if error:
+            return error
+        resolved, schedule_error = await self._resolve_web_schedule(
+            body.get("text") or body.get("schedule_text") or "",
+            self._web_cron_scope(request),
+        )
+        if schedule_error:
+            return schedule_error
+        return web.json_response(resolved)
+
+    async def _handle_job_executions(self, request: "web.Request") -> "web.Response":
+        """GET /api/jobs/{job_id}/executions — this job's attempt history."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        cron_err = self._check_jobs_available()
+        if cron_err:
+            return cron_err
+        job_id, id_err = self._check_job_id(request)
+        if id_err:
+            return id_err
+        scope_err = self._scope_denies_job(request, job_id)
+        if scope_err:
+            return scope_err
+        try:
+            limit = max(1, min(int(request.query.get("limit", "20")), 100))
+        except (TypeError, ValueError):
+            limit = 20
+        try:
+            from cron.executions import list_executions
+
+            rows = await asyncio.to_thread(list_executions, job_id=job_id, limit=limit)
+            return web.json_response({"executions": rows})
+        except Exception as e:
+            return web.json_response({"error": _redact_api_error_text(e)}, status=500)
+
+    @staticmethod
+    def _collect_executions(
+        job_ids: set, *, since: Optional[Any] = None, job_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Execution rows for ``job_ids``, newest first.
+
+        ``since`` (an aware datetime) bounds how far back to look, and
+        ``job_id`` narrows to a single task. The ledger has no index for
+        either, so page backwards through its newest-first listing and stop
+        once a page reaches past the bound.
+
+        Comparison is timezone-aware on purpose: stored ``claimed_at`` values
+        can carry different UTC offsets (older rows are UTC), so comparing
+        date strings would both miscount around midnight and stop the scan
+        early. A page cap keeps a busy profile from turning one request into
+        an unbounded scan; the ledger itself is capped at
+        ``MAX_TERMINAL_EXECUTIONS`` terminal rows.
+        """
+        from datetime import datetime
+
+        from cron.executions import list_executions
+        from cron.jobs import _ensure_aware
+
+        def _claimed(row: Dict[str, Any]) -> Optional[Any]:
+            raw = str(row.get("claimed_at") or "")
+            if not raw:
+                return None
+            try:
+                return _ensure_aware(datetime.fromisoformat(raw))
+            except ValueError:
+                return None
+
+        rows: List[Dict[str, Any]] = []
+        cursor: Optional[str] = None
+        for _page in range(10):
+            batch = list_executions(limit=500, before_claimed_at=cursor, job_id=job_id)
+            if not batch:
+                break
+            oldest: Optional[Any] = None
+            for row in batch:
+                claimed = _claimed(row)
+                if claimed is None:
+                    continue
+                if oldest is None or claimed < oldest:
+                    oldest = claimed
+                if since is not None and claimed < since:
+                    continue
+                if row.get("job_id") in job_ids:
+                    rows.append(row)
+            if len(batch) < 500:
+                break
+            if since is not None and oldest is not None and oldest < since:
+                break
+            cursor = str(batch[-1].get("claimed_at") or "")
+            if not cursor:
+                break
+        return rows
+
+    _EXECUTION_HISTORY_MAX_LIMIT = 200
+
+    async def _handle_executions_history(self, request: "web.Request") -> "web.Response":
+        """GET /api/jobs/executions — execution history across the user's tasks.
+
+        Query: ``job_id`` (one task), ``since`` (ISO lower bound),
+        ``limit``/``offset`` (paging). Rows carry ``job_name`` so the table
+        can name the task without a second round trip.
+
+        A ``job_id`` outside the caller's scope yields an empty page rather
+        than an error — same no-existence-leak rule as the single-job routes.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        cron_err = self._check_jobs_available()
+        if cron_err:
+            return cron_err
+        try:
+            scope = self._web_cron_scope(request)
+            jobs = _cron_list(include_disabled=True)
+            if scope is not None:
+                jobs = [job for job in jobs if self._job_visible_to_scope(job, scope)]
+            names = {str(job.get("id") or ""): job.get("name") or "" for job in jobs}
+            names.pop("", None)
+
+            job_id = (request.query.get("job_id") or "").strip() or None
+            if job_id is not None and job_id not in names:
+                return web.json_response({"executions": [], "total": 0})
+
+            since = None
+            raw_since = (request.query.get("since") or "").strip()
+            if raw_since:
+                from datetime import datetime
+
+                from cron.jobs import _ensure_aware
+
+                # A "+08:00" offset arrives as " 08:00" when the caller did not
+                # percent-encode it ("+" means space in a query string), which
+                # is easy to hit by hand-building the URL.
+                normalized = raw_since.replace(" ", "+")
+                try:
+                    since = _ensure_aware(datetime.fromisoformat(normalized))
+                except ValueError:
+                    return web.json_response({"error": "Invalid 'since' timestamp"}, status=400)
+
+            try:
+                limit = max(1, min(int(request.query.get("limit", "50")), self._EXECUTION_HISTORY_MAX_LIMIT))
+            except (TypeError, ValueError):
+                limit = 50
+            try:
+                offset = max(0, int(request.query.get("offset", "0")))
+            except (TypeError, ValueError):
+                offset = 0
+
+            # Narrow the owned-id set as well, not just the ledger query: the
+            # id filter has to hold even if the storage layer ignores it.
+            target_ids = {job_id} if job_id else set(names)
+            rows = (
+                await asyncio.to_thread(
+                    self._collect_executions, target_ids, since=since, job_id=job_id
+                )
+                if names
+                else []
+            )
+            page = [dict(row, job_name=names.get(str(row.get("job_id") or ""), "")) for row in rows[offset : offset + limit]]
+            return web.json_response({"executions": page, "total": len(rows)})
+        except Exception as e:
+            return web.json_response({"error": _redact_api_error_text(e)}, status=500)
+
+    async def _handle_jobs_metrics(self, request: "web.Request") -> "web.Response":
+        """GET /api/jobs/metrics — headline counters for the task workbench."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        cron_err = self._check_jobs_available()
+        if cron_err:
+            return cron_err
+        try:
+            scope = self._web_cron_scope(request)
+            jobs = _cron_list(include_disabled=True)
+            if scope is not None:
+                jobs = [job for job in jobs if self._job_visible_to_scope(job, scope)]
+            running = sum(
+                1
+                for job in jobs
+                if job.get("enabled", True) and job.get("state") != "paused"
+            )
+            job_ids = {str(job.get("id") or "") for job in jobs}
+            job_ids.discard("")
+
+            from hermes_time import now as _now
+
+            day_start = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+            rows = (
+                await asyncio.to_thread(self._collect_executions, job_ids, since=day_start)
+                if job_ids
+                else []
+            )
+            completed = sum(1 for row in rows if row.get("status") == "completed")
+            failed = sum(1 for row in rows if row.get("status") == "failed")
+            finished = completed + failed
+            return web.json_response(
+                {
+                    "running": running,
+                    "total": len(jobs),
+                    "today_executed": len(rows),
+                    "today_failed": failed,
+                    "success_rate": round(completed / finished, 4) if finished else None,
+                }
+            )
+        except Exception as e:
+            return web.json_response({"error": _redact_api_error_text(e)}, status=500)
+
+    async def _handle_feishu_chats(self, request: "web.Request") -> "web.Response":
+        """GET /api/feishu/chats — groups this user and the assistant share.
+
+        Powers the task form's group picker. Only the intersection is
+        returned; the create/update paths re-check membership, so a stale or
+        hand-crafted chat_id never becomes a delivery target.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        scope = self._web_cron_scope(request)
+        if scope is None:
+            return web.json_response(
+                {"error": "This endpoint requires a web session"}, status=400
+            )
+        try:
+            chats = await self._web_user_group_chats(request, scope)
+            return web.json_response({"chats": chats})
         except Exception as e:
             return web.json_response({"error": _redact_api_error_text(e)}, status=500)
 

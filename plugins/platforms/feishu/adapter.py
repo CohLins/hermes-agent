@@ -109,6 +109,14 @@ try:
         UpdateMessageRequest,
         UpdateMessageRequestBody,
     )
+    try:
+        # Chat-roster calls behind the web task form's group picker. Kept in
+        # their own try so an older lark-oapi missing either symbol cannot
+        # take down the whole adapter.
+        from lark_oapi.api.im.v1 import GetChatMembersRequest, ListChatRequest
+    except ImportError:  # pragma: no cover - depends on installed SDK
+        GetChatMembersRequest = None  # type: ignore[assignment]
+        ListChatRequest = None  # type: ignore[assignment]
     from lark_oapi.core import AccessTokenType, HttpMethod
     from lark_oapi.core.const import FEISHU_DOMAIN, LARK_DOMAIN
     from lark_oapi.core.model import BaseRequest
@@ -2988,6 +2996,107 @@ class FeishuAdapter(BasePlatformAdapter):
             logger.warning("[Feishu] Failed to get chat info for %s", chat_id, exc_info=True)
             return fallback
 
+    async def list_group_chats(self, *, page_limit: int = 10) -> List[Dict[str, Any]]:
+        """Return the group chats this bot belongs to.
+
+        Backs the web task form's "deliver to a group" picker. Only real
+        groups are returned — p2p rows in the same listing are the bot's DMs,
+        which the "notify me" option already covers. Failures degrade to the
+        chats collected so far: a short picker is recoverable, an exception
+        mid-form is not.
+        """
+        if not self._client:
+            return []
+        chats: List[Dict[str, Any]] = []
+        page_token: Optional[str] = None
+        for _page in range(max(1, page_limit)):
+            try:
+                request = self._build_list_chats_request(page_token, 100)
+                response = await self._run_blocking(self._client.im.v1.chat.list, request)
+            except Exception:
+                logger.warning("[Feishu] Failed to list bot chats", exc_info=True)
+                return chats
+            if not response or getattr(response, "success", lambda: False)() is False:
+                logger.warning(
+                    "[Feishu] Failed to list bot chats: [%s] %s",
+                    getattr(response, "code", "unknown"),
+                    getattr(response, "msg", "chat list failed"),
+                )
+                return chats
+            data = getattr(response, "data", None)
+            for item in getattr(data, "items", None) or []:
+                chat_id = str(getattr(item, "chat_id", "") or "").strip()
+                if not chat_id:
+                    continue
+                if str(getattr(item, "chat_mode", "") or "").strip().lower() != "group":
+                    continue
+                chats.append(
+                    {
+                        "chat_id": chat_id,
+                        "name": str(getattr(item, "name", None) or chat_id),
+                        "external": bool(getattr(item, "external", False)),
+                    }
+                )
+            if not getattr(data, "has_more", False):
+                break
+            page_token = str(getattr(data, "page_token", "") or "")
+            if not page_token:
+                break
+        return chats
+
+    async def chat_has_member(
+        self,
+        chat_id: str,
+        subject: str,
+        id_type: str = "open_id",
+        *,
+        page_limit: int = 20,
+    ) -> bool:
+        """Whether ``subject`` is a member of ``chat_id``.
+
+        ``id_type`` is the Feishu id kind of ``subject`` ("open_id" /
+        "user_id"), matching whichever binding the caller holds. This is what
+        stops a web user from routing task output into a group they are not
+        in, so it fails CLOSED: anything unresolvable answers False.
+        """
+        if not self._client or not chat_id or not subject:
+            return False
+        member_id_type = (
+            id_type if id_type in {"open_id", "user_id", "union_id"} else "open_id"
+        )
+        page_token: Optional[str] = None
+        for _page in range(max(1, page_limit)):
+            try:
+                request = self._build_chat_members_request(
+                    chat_id, member_id_type, page_token, 100
+                )
+                response = await self._run_blocking(
+                    self._client.im.v1.chat_members.get, request
+                )
+            except Exception:
+                logger.warning(
+                    "[Feishu] Failed to read members of %s", chat_id, exc_info=True
+                )
+                return False
+            if not response or getattr(response, "success", lambda: False)() is False:
+                logger.warning(
+                    "[Feishu] Failed to read members of %s: [%s] %s",
+                    chat_id,
+                    getattr(response, "code", "unknown"),
+                    getattr(response, "msg", "member lookup failed"),
+                )
+                return False
+            data = getattr(response, "data", None)
+            for item in getattr(data, "items", None) or []:
+                if str(getattr(item, "member_id", "") or "").strip() == subject:
+                    return True
+            if not getattr(data, "has_more", False):
+                return False
+            page_token = str(getattr(data, "page_token", "") or "")
+            if not page_token:
+                return False
+        return False
+
     def format_message(self, content: str) -> str:
         """Feishu text messages are plain text by default."""
         return content.strip()
@@ -5547,6 +5656,36 @@ class FeishuAdapter(BasePlatformAdapter):
         if "GetChatRequest" in globals():
             return GetChatRequest.builder().chat_id(chat_id).build()
         return SimpleNamespace(chat_id=chat_id)
+
+    @staticmethod
+    def _build_list_chats_request(page_token: Optional[str], page_size: int) -> Any:
+        if globals().get("ListChatRequest") is not None:
+            builder = ListChatRequest.builder().page_size(page_size)
+            if page_token:
+                builder = builder.page_token(page_token)
+            return builder.build()
+        return SimpleNamespace(page_token=page_token, page_size=page_size)
+
+    @staticmethod
+    def _build_chat_members_request(
+        chat_id: str, member_id_type: str, page_token: Optional[str], page_size: int
+    ) -> Any:
+        if globals().get("GetChatMembersRequest") is not None:
+            builder = (
+                GetChatMembersRequest.builder()
+                .chat_id(chat_id)
+                .member_id_type(member_id_type)
+                .page_size(page_size)
+            )
+            if page_token:
+                builder = builder.page_token(page_token)
+            return builder.build()
+        return SimpleNamespace(
+            chat_id=chat_id,
+            member_id_type=member_id_type,
+            page_token=page_token,
+            page_size=page_size,
+        )
 
     @staticmethod
     def _build_get_message_request(message_id: str) -> Any:
