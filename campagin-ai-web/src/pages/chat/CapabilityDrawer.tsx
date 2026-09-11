@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { Drawer, Empty, Input, Tabs, Tag } from "antd";
-import { getCapabilities, listSkills, listToolsets } from "@/api/agent";
+import { getCapabilities, listToolsets } from "@/api/agent";
+import { listSkills } from "@/api/capability";
 import LoadState from "@/components/LoadState";
 import { useAsync } from "@/hooks/useAsync";
 import type { AgentCapabilities } from "@/types/agent";
+import type { Skill } from "@/types/capability";
 
 export type CapabilityTab = "skills" | "toolsets" | "runtime";
 
@@ -35,7 +37,7 @@ export default function CapabilityDrawer({
   const [keyword, setKeyword] = useState("");
 
   // open 作为 deps：抽屉关掉再打开会重新拉，能反映 profile 侧的改动。
-  const skills = useAsync(() => (open ? listSkills() : Promise.resolve([])), [open]);
+  const skills = useAsync<Skill[]>(() => (open ? listSkills() : Promise.resolve([])), [open]);
   const toolsets = useAsync(() => (open ? listToolsets() : Promise.resolve([])), [open]);
   const caps = useAsync<AgentCapabilities>(
     () => (open ? getCapabilities() : Promise.resolve({})),
@@ -49,7 +51,7 @@ export default function CapabilityDrawer({
       (s) =>
         !q ||
         s.name.toLowerCase().includes(q) ||
-        (s.description ?? "").toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q) ||
         (s.category ?? "").toLowerCase().includes(q),
     );
     const byCategory = new Map<string, typeof matched>();
@@ -178,13 +180,23 @@ export default function CapabilityDrawer({
                   <p>{sessionModel || "（还没有会话，发一条消息后可见）"}</p>
                 </div>
                 <div className="cap-row">
+                  <code>profile</code>
+                  <p>
+                    {caps.data?.profile || "—"}
+                    <br />
+                    <span className="cap-sub">
+                      技能、MCP 和 config 都读这个 profile；profile 之间不继承。
+                    </span>
+                  </p>
+                </div>
+                <div className="cap-row">
                   <code>对外模型名</code>
                   <p>
                     {caps.data?.model || "—"}
                     <br />
                     <span className="cap-sub">
-                      /v1/models 对外暴露的名字。没配 API_SERVER_MODEL_NAME 时它就是
-                      profile 名，不是真实模型。
+                      /v1/models 对外暴露的名字。没配 API_SERVER_MODEL_NAME 时它回的是
+                      profile 名，不是真实模型 —— 真实模型看上面的会话模型。
                     </span>
                   </p>
                 </div>

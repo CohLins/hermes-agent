@@ -666,16 +666,45 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
         return False
 
 
-def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
-    """Recursively find all skills in ~/.hermes/skills/ and external dirs.
+# One scan, two views. The scan cache holds RICH records (the summary keys plus
+# version/tags/required_env/setup_help/path); _find_all_skills() hands out the
+# three-key summary it has always returned, list_skills_detailed() the full
+# record. A management surface needs version/readiness for 60+ skills, and a
+# second pass re-reading every SKILL.md just for that would double the I/O.
+_SKILL_SUMMARY_KEYS = ("name", "description", "category")
 
-    Args:
-        skip_disabled: If True, return ALL skills regardless of disabled
-            state (used by ``hermes skills`` config UI). Default False
-            filters out disabled skills.
 
-    Returns:
-        List of skill metadata dicts (name, description, category).
+def _resolve_disabled_skill_names(platform: Optional[str] = None) -> Set[str]:
+    """Return the disabled-skill set, optionally for an explicit *platform*.
+
+    The ``platform is None`` path deliberately goes through
+    ``_get_disabled_skill_names()``: tests monkeypatch that exact symbol with a
+    zero-arg callable, so routing around it would silently ignore their patch.
+    """
+    if platform is None:
+        return _get_disabled_skill_names()
+    from agent.skill_utils import get_disabled_skill_names
+    return get_disabled_skill_names(platform)
+
+
+def _scan_skills(
+    *,
+    apply_disabled_filter: bool,
+    platform: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Scan every skills dir once and return rich per-skill records.
+
+    Each record carries the summary keys plus ``version`` / ``tags`` /
+    ``required_env`` / ``setup_help`` / ``path`` (the SKILL.md ``Path`` —
+    server-side only; never serialize it to a client, it leaks the home
+    layout).
+
+    ``apply_disabled_filter`` is the inverse of the historical
+    ``skip_disabled`` flag: True drops config-disabled skills, False keeps
+    every skill so the caller can annotate an ``enabled`` flag itself.
+
+    The returned list and its dicts are owned by the cache — callers must
+    treat them as read-only and build their own dicts to hand out.
 
     Results are cached per-session; the cache is invalidated when the scan
     signature changes (dir/category mtimes or the disabled-set) and expires
@@ -683,11 +712,15 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
     """
     from agent.skill_utils import get_external_skills_dirs, iter_skill_index_files
 
-    cache_key = _SKILLS_CACHE_KEY_DISABLED if skip_disabled else _SKILLS_CACHE_KEY_FILTERED
+    cache_key = (
+        _SKILLS_CACHE_KEY_FILTERED if apply_disabled_filter else _SKILLS_CACHE_KEY_DISABLED
+    )
 
     # Load disabled set once (not per-skill). Part of the cache signature:
     # disabling a skill is a config change with no filesystem mtime bump.
-    disabled = set() if skip_disabled else _get_disabled_skill_names()
+    disabled = (
+        _resolve_disabled_skill_names(platform) if apply_disabled_filter else set()
+    )
 
     # Collect directories to scan — same resolution as the scan loop below
     # (_skills_dir() resolves the LIVE profile HERMES_HOME; the module-level
@@ -707,10 +740,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
         and cached[0] == signature
         and (now - cached[1]) < _SKILLS_CACHE_TTL_SECONDS
     ):
-        # Per-call shallow copies: callers mutate the returned dicts
-        # (e.g. web_server annotates s["enabled"]/s["usage"]) — handing
-        # out the cached objects would poison the cache for everyone else.
-        return [dict(s) for s in cached[2]]
+        return cached[2]
 
     skills = []
     seen_names: set = set()
@@ -753,11 +783,31 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
 
                 category = _get_category_from_path(skill_md)
 
+                # tags live under metadata.hermes (agentskills.io convention)
+                # with a top-level fallback — same precedence skill_view uses.
+                hermes_meta = {}
+                metadata = frontmatter.get("metadata")
+                if isinstance(metadata, dict):
+                    hermes_meta = metadata.get("hermes", {}) or {}
+                tags = _parse_tags(
+                    hermes_meta.get("tags") or frontmatter.get("tags", "")
+                )
+
+                version = frontmatter.get("version")
+                legacy_env_vars, _ = _collect_prerequisite_values(frontmatter)
+
                 seen_names.add(name)
                 skills.append({
                     "name": name,
                     "description": description,
                     "category": category,
+                    "version": str(version) if version is not None else None,
+                    "tags": tags,
+                    "required_env": _get_required_environment_variables(
+                        frontmatter, legacy_env_vars
+                    ),
+                    "setup_help": _normalize_setup_metadata(frontmatter)["help"],
+                    "path": skill_md,
                 })
 
             except (UnicodeDecodeError, PermissionError) as e:
@@ -771,10 +821,157 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
 
     # Store in cache keyed by the scan signature computed BEFORE the scan
     # (a write racing the scan changes the signature, so the next call
-    # re-scans rather than serving the torn result past the TTL). Same
-    # shallow-copy contract as the hit path — the caller may mutate.
+    # re-scans rather than serving the torn result past the TTL).
     _SKILLS_CACHE[cache_key] = (signature, now, skills)
-    return [dict(s) for s in skills]
+    return skills
+
+
+def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+    """Recursively find all skills in ~/.hermes/skills/ and external dirs.
+
+    Args:
+        skip_disabled: If True, return ALL skills regardless of disabled
+            state (used by ``hermes skills`` config UI). Default False
+            filters out disabled skills.
+
+    Returns:
+        List of skill metadata dicts (name, description, category).
+
+    A summary view over ``_scan_skills()`` — see it for the caching and
+    invalidation rules, and use ``list_skills_detailed()`` when you need
+    version/tags/readiness rather than a second scan.
+    """
+    # Fresh dicts per call: callers mutate what they get back (e.g. web_server
+    # annotates s["enabled"]/s["usage"]), so handing out the cached records
+    # would poison the cache for everyone else.
+    return [
+        {key: record[key] for key in _SKILL_SUMMARY_KEYS}
+        for record in _scan_skills(apply_disabled_filter=not skip_disabled)
+    ]
+
+
+def _bundled_skill_names() -> Set[str]:
+    """Names seeded from the repo's bundled ``skills/`` dir (.bundled_manifest).
+
+    Everything not in the manifest is user-authored or hub-installed, which
+    management surfaces group as "custom". Fail-quiet to "nothing is bundled"
+    rather than breaking a whole listing over a missing/corrupt manifest.
+    """
+    try:
+        from tools.skill_usage import _read_bundled_manifest_names
+        return set(_read_bundled_manifest_names())
+    except Exception:
+        logger.debug("Failed to read the bundled skill manifest", exc_info=True)
+        return set()
+
+
+def _skill_readiness(
+    record: Dict[str, Any], env_snapshot: Dict[str, str]
+) -> List[str]:
+    """Required env var NAMES that are still unset for *record*.
+
+    Same predicate ``skill_use`` applies before it declares a skill
+    ``setup_needed`` — never returns values, only names.
+    """
+    return [
+        entry["name"]
+        for entry in record.get("required_env") or []
+        if not entry.get("optional")
+        and not _is_env_var_persisted(entry["name"], env_snapshot)
+    ]
+
+
+def list_skills_detailed(
+    *,
+    include_disabled: bool = False,
+    platform: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Skill listing with the metadata a management surface needs.
+
+    On top of the summary keys, each entry carries ``version``, ``tags``,
+    ``enabled``, ``provenance`` (``bundled`` = seeded from the repo's
+    ``skills/`` dir, ``custom`` = user-authored or hub-installed),
+    ``readiness`` and ``missing_env`` (env var NAMES only, never values).
+
+    Readiness is computed outside the scan cache on purpose: a secret landing
+    in ``.env`` flips it without touching any SKILL.md mtime, so a cached
+    verdict would go stale with nothing to invalidate it.
+
+    ``include_disabled`` keeps config-disabled skills in the list (flagged
+    ``enabled: False``) instead of dropping them.
+    """
+    records = _scan_skills(
+        apply_disabled_filter=not include_disabled, platform=platform
+    )
+    disabled = _resolve_disabled_skill_names(platform) if include_disabled else set()
+    env_snapshot = load_env()
+    bundled = _bundled_skill_names()
+
+    detailed: List[Dict[str, Any]] = []
+    for record in records:
+        missing_env = _skill_readiness(record, env_snapshot)
+        name = record["name"]
+        detailed.append({
+            "name": name,
+            "description": record["description"],
+            "category": record["category"],
+            "version": record["version"],
+            "tags": list(record["tags"]),
+            "enabled": name not in disabled,
+            "provenance": "bundled" if name in bundled else "custom",
+            "readiness": (
+                SkillReadinessStatus.SETUP_NEEDED.value
+                if missing_env
+                else SkillReadinessStatus.AVAILABLE.value
+            ),
+            "missing_env": missing_env,
+            "setup_help": record["setup_help"],
+        })
+    return detailed
+
+
+def read_skill_document(
+    name: str, *, max_bytes: int = 256 * 1024
+) -> Optional[Dict[str, Any]]:
+    """Return one skill's SKILL.md text plus its listing metadata.
+
+    Resolves *name* against the frontmatter names the listing exposes — NOT
+    against directory names the way ``skill_manager_tool._find_skill`` does.
+    The two disagree whenever a SKILL.md declares a name different from its
+    folder, and the frontmatter one is all a client ever sees.
+
+    Disabled skills resolve too: a management UI that lists them must be able
+    to open them. Returns None when nothing matches, and raises ValueError for
+    a name that could escape the skills roots.
+
+    The absolute path stays internal — callers serving this to a browser must
+    not leak it.
+    """
+    lookup_error = _skill_lookup_path_error(name)
+    if lookup_error:
+        raise ValueError(lookup_error)
+
+    wanted = name.strip()
+    bundled = _bundled_skill_names()
+    for record in _scan_skills(apply_disabled_filter=False):
+        if record["name"] != wanted:
+            continue
+        raw = record["path"].read_text(encoding="utf-8")
+        encoded = raw.encode("utf-8")
+        truncated = len(encoded) > max_bytes
+        if truncated:
+            raw = encoded[:max_bytes].decode("utf-8", "ignore")
+        return {
+            "name": record["name"],
+            "description": record["description"],
+            "category": record["category"],
+            "version": record["version"],
+            "tags": list(record["tags"]),
+            "provenance": "bundled" if wanted in bundled else "custom",
+            "content": raw,
+            "truncated": truncated,
+        }
+    return None
 
 
 def _sort_skills(skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

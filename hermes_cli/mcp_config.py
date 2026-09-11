@@ -75,6 +75,46 @@ def _prompt(question: str, *, password: bool = False, default: str = "") -> str:
 
 # ─── Config Helpers ───────────────────────────────────────────────────────────
 
+def redact_mcp_env(env: Dict[str, Any]) -> Dict[str, str]:
+    """Mask secret-shaped MCP env values for read responses."""
+    from hermes_cli.config import redact_key
+
+    out: Dict[str, str] = {}
+    for k, v in (env or {}).items():
+        try:
+            out[str(k)] = redact_key(str(v)) if v else ""
+        except Exception:
+            out[str(k)] = "***"
+    return out
+
+
+def mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Client-safe view of one ``mcp_servers`` entry.
+
+    Shared by every read surface (dashboard, api_server) so the redaction
+    rules can't drift between them — an entry's env is masked here, once.
+    """
+    transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "unknown")
+    auth = cfg.get("auth")
+    headers = cfg.get("headers") or {}
+    if not auth and isinstance(headers, dict) and any(
+        str(key).lower() == "authorization" for key in headers
+    ):
+        auth = "header"
+    return {
+        "name": name,
+        "transport": transport,
+        "url": cfg.get("url"),
+        "command": cfg.get("command"),
+        "args": list(cfg.get("args") or []),
+        "env": redact_mcp_env(cfg.get("env") or {}),
+        "auth": auth,
+        "enabled": cfg.get("enabled", True) is not False,
+        # Tool selection: list of enabled tool names, or None = all.
+        "tools": cfg.get("tools"),
+    }
+
+
 def _get_mcp_servers(config: Optional[dict] = None) -> Dict[str, dict]:
     """Return the ``mcp_servers`` dict from config, or empty dict."""
     if config is None:

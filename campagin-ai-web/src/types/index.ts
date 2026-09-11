@@ -2,31 +2,7 @@
 export type PillTone = "neutral" | "success" | "warn" | "danger";
 
 /* ---------- 能力管理 ---------- */
-
-export type CapabilityStatus = "已启用" | "待配置";
-
-export interface Skill {
-  id: string;
-  name: string;
-  description: string;
-  version: string;
-  scene: string;
-  status: CapabilityStatus;
-  /** skill.md 正文，详情弹窗按 Markdown 渲染。 */
-  markdown: string;
-}
-
-export interface McpServer {
-  id: string;
-  name: string;
-  description: string;
-  status: CapabilityStatus;
-  configSummary: string;
-  lastCheckedAt: string;
-  permissions: string[];
-  /** 连接参数说明；敏感值以遮蔽形态展示。 */
-  connection: { key: string; value: string; masked?: boolean }[];
-}
+/* Skill / MCP 的类型见 @/types/capability.ts —— 那里按 api_server 的实际字段定义。 */
 
 /* ---------- 服务可观测 ---------- */
 

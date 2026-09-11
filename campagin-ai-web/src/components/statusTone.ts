@@ -9,7 +9,10 @@ export function toneOfServiceStatus(status: string): PillTone {
 }
 
 export function toneOfCapabilityStatus(status: string): PillTone {
-  return status === "已启用" ? "success" : "warn";
+  if (status === "已启用") return "success";
+  // 「未启用」是用户自己关的，不是异常，别用告警色喊人。
+  if (status === "未启用") return "neutral";
+  return "warn";
 }
 
 export function toneOfTaskStatus(status: string): PillTone {

@@ -10874,37 +10874,18 @@ def _normalize_mcp_server_create(
     return name, server_config, bearer_token
 
 
+# Both delegate to hermes_cli.mcp_config so the redaction rules stay in one
+# place — the api_server read endpoints serve the same shape.
 def _redact_mcp_env(env: Dict[str, Any]) -> Dict[str, str]:
-    """Mask secret-shaped MCP env values for read responses."""
-    out: Dict[str, str] = {}
-    for k, v in (env or {}).items():
-        try:
-            out[str(k)] = redact_key(str(v)) if v else ""
-        except Exception:
-            out[str(k)] = "***"
-    return out
+    from hermes_cli.mcp_config import redact_mcp_env
+
+    return redact_mcp_env(env)
 
 
 def _mcp_server_summary(name: str, cfg: Dict[str, Any]) -> Dict[str, Any]:
-    transport = "http" if cfg.get("url") else ("stdio" if cfg.get("command") else "unknown")
-    auth = cfg.get("auth")
-    headers = cfg.get("headers") or {}
-    if not auth and isinstance(headers, dict) and any(
-        str(key).lower() == "authorization" for key in headers
-    ):
-        auth = "header"
-    return {
-        "name": name,
-        "transport": transport,
-        "url": cfg.get("url"),
-        "command": cfg.get("command"),
-        "args": list(cfg.get("args") or []),
-        "env": _redact_mcp_env(cfg.get("env") or {}),
-        "auth": auth,
-        "enabled": cfg.get("enabled", True) is not False,
-        # Tool selection: list of enabled tool names, or None = all.
-        "tools": cfg.get("tools"),
-    }
+    from hermes_cli.mcp_config import mcp_server_summary
+
+    return mcp_server_summary(name, cfg)
 
 
 @app.get("/api/mcp/servers")

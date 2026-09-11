@@ -36,12 +36,7 @@ export interface AgentMessage {
 
 /* ---------- 能力（技能 / 工具集 / 运行时） ---------- */
 
-/** GET /v1/skills 的每一项。 */
-export interface AgentSkill {
-  name: string;
-  description?: string | null;
-  category?: string | null;
-}
+/* GET /v1/skills 的类型见 @/types/capability.ts —— 能力管理页与聊天抽屉共用同一份。 */
 
 /** GET /v1/toolsets 的每一项，platform 固定是 api_server。 */
 export interface AgentToolset {
@@ -63,6 +58,11 @@ export interface AgentCapabilities {
    * AgentSession.model。
    */
   model?: string;
+  /**
+   * 能力端点读的是哪个 profile 的 skills/MCP/config（"default" / profile 名 /
+   * "custom"）。profile 之间不继承，所以这决定了清单里有哪些东西。
+   */
+  profile?: string;
   runtime?: {
     mode?: string;
     tool_execution?: string;

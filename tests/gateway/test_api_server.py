@@ -647,7 +647,9 @@ def _create_app(adapter: APIServerAdapter) -> web.Application:
     app.router.add_get("/v1/models", adapter._handle_models)
     app.router.add_get("/v1/capabilities", adapter._handle_capabilities)
     app.router.add_get("/v1/skills", adapter._handle_skills)
+    app.router.add_get("/v1/skills/detail", adapter._handle_skill_detail)
     app.router.add_get("/v1/toolsets", adapter._handle_toolsets)
+    app.router.add_get("/v1/mcp/servers", adapter._handle_mcp_servers)
     app.router.add_post("/v1/chat/completions", adapter._handle_chat_completions)
     app.router.add_post("/v1/responses", adapter._handle_responses)
     app.router.add_get("/v1/responses/{response_id}", adapter._handle_get_response)
@@ -989,6 +991,14 @@ class TestCapabilitiesEndpoint:
             assert data["features"]["session_continuity_header"] == "X-Hermes-Session-Id"
             assert data["endpoints"]["run_status"]["path"] == "/v1/runs/{run_id}"
             assert data["endpoints"]["skills"] == {"method": "GET", "path": "/v1/skills"}
+            assert data["endpoints"]["skill_detail"] == {
+                "method": "GET",
+                "path": "/v1/skills/detail",
+            }
+            assert data["endpoints"]["mcp_servers"] == {
+                "method": "GET",
+                "path": "/v1/mcp/servers",
+            }
             assert data["endpoints"]["toolsets"] == {"method": "GET", "path": "/v1/toolsets"}
 
     @pytest.mark.asyncio
@@ -1012,15 +1022,61 @@ class TestCapabilitiesEndpoint:
 # ---------------------------------------------------------------------------
 
 
+class TestCapabilitiesProfile:
+    @pytest.mark.asyncio
+    async def test_capabilities_reports_active_profile(self, adapter):
+        """Capability listings are profile-scoped, so the profile is part of
+        the contract — a client must be able to say which one it is showing."""
+        with patch(
+            "hermes_cli.profiles.get_active_profile_name",
+            return_value="feishu",
+        ):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                data = await (await cli.get("/v1/capabilities")).json()
+        assert data["profile"] == "feishu"
+
+    @pytest.mark.asyncio
+    async def test_capabilities_survives_profile_resolution_failure(self, adapter):
+        """A broken profile lookup must not take the whole response down."""
+        with patch(
+            "hermes_cli.profiles.get_active_profile_name",
+            side_effect=RuntimeError("boom"),
+        ):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                resp = await cli.get("/v1/capabilities")
+                assert resp.status == 200
+                assert (await resp.json())["profile"] == "unknown"
+
+
 class TestSkillsEndpoint:
+    @staticmethod
+    def _skill(name, category, **overrides):
+        """A list_skills_detailed() row with the defaults the handler passes through."""
+        row = {
+            "name": name,
+            "description": f"{name} skill",
+            "category": category,
+            "version": "1.0.0",
+            "tags": [],
+            "enabled": True,
+            "provenance": "bundled",
+            "readiness": "available",
+            "missing_env": [],
+            "setup_help": None,
+        }
+        row.update(overrides)
+        return row
+
     @pytest.mark.asyncio
     async def test_skills_returns_list_envelope(self, adapter):
         fake_skills = [
-            {"name": "github", "description": "GitHub workflow skill", "category": "github"},
-            {"name": "ascii-art", "description": "ASCII art generation", "category": "creative"},
+            self._skill("github", "github"),
+            self._skill("ascii-art", "creative"),
         ]
         with patch(
-            "tools.skills_tool._find_all_skills",
+            "tools.skills_tool.list_skills_detailed",
             return_value=list(fake_skills),
         ):
             app = _create_app(adapter)
@@ -1035,9 +1091,70 @@ class TestSkillsEndpoint:
                     assert set(entry.keys()) >= {"name", "description", "category"}
 
     @pytest.mark.asyncio
+    async def test_skills_reports_management_metadata(self, adapter):
+        """version/tags/provenance/readiness reach the client, values do not."""
+        fake_skills = [
+            self._skill(
+                "airtable",
+                "productivity",
+                version="2.1.0",
+                tags=["Data"],
+                provenance="custom",
+                readiness="setup_needed",
+                missing_env=["AIRTABLE_API_KEY"],
+                setup_help="Create a token in the Airtable console.",
+            ),
+        ]
+        with patch(
+            "tools.skills_tool.list_skills_detailed",
+            return_value=list(fake_skills),
+        ):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                data = await (await cli.get("/v1/skills")).json()
+        entry = data["data"][0]
+        assert entry["version"] == "2.1.0"
+        assert entry["tags"] == ["Data"]
+        assert entry["provenance"] == "custom"
+        assert entry["readiness"] == "setup_needed"
+        # Only NAMES of unset env vars — a value here would be a secret leak.
+        assert entry["missing_env"] == ["AIRTABLE_API_KEY"]
+
+    @pytest.mark.asyncio
+    async def test_skills_include_disabled_is_forwarded(self, adapter):
+        """?include_disabled=1 must reach list_skills_detailed, with the platform pinned."""
+        captured = {}
+
+        def _fake(*, include_disabled, platform):
+            captured["include_disabled"] = include_disabled
+            captured["platform"] = platform
+            return [self._skill("off-skill", "misc", enabled=False)]
+
+        with patch("tools.skills_tool.list_skills_detailed", side_effect=_fake):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                data = await (await cli.get("/v1/skills?include_disabled=1")).json()
+        assert captured == {"include_disabled": True, "platform": "api_server"}
+        assert data["data"][0]["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_skills_defaults_to_excluding_disabled(self, adapter):
+        captured = {}
+
+        def _fake(*, include_disabled, platform):
+            captured["include_disabled"] = include_disabled
+            return []
+
+        with patch("tools.skills_tool.list_skills_detailed", side_effect=_fake):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                assert (await cli.get("/v1/skills")).status == 200
+        assert captured["include_disabled"] is False
+
+    @pytest.mark.asyncio
     async def test_skills_handles_enumeration_failure(self, adapter):
         with patch(
-            "tools.skills_tool._find_all_skills",
+            "tools.skills_tool.list_skills_detailed",
             side_effect=RuntimeError("boom"),
         ):
             app = _create_app(adapter)
@@ -1049,7 +1166,7 @@ class TestSkillsEndpoint:
 
     @pytest.mark.asyncio
     async def test_skills_requires_auth_when_key_configured(self, auth_adapter):
-        with patch("tools.skills_tool._find_all_skills", return_value=[]):
+        with patch("tools.skills_tool.list_skills_detailed", return_value=[]):
             app = _create_app(auth_adapter)
             async with TestClient(TestServer(app)) as cli:
                 resp = await cli.get("/v1/skills")
@@ -1057,6 +1174,153 @@ class TestSkillsEndpoint:
 
                 authed = await cli.get(
                     "/v1/skills",
+                    headers={"Authorization": "Bearer sk-secret"},
+                )
+                assert authed.status == 200
+
+
+class TestSkillDetailEndpoint:
+    _DOCUMENT = {
+        "name": "github",
+        "description": "GitHub workflow skill",
+        "category": "github",
+        "version": "1.4.0",
+        "tags": ["Git"],
+        "provenance": "bundled",
+        "content": "---\nname: github\n---\n\n# GitHub\n",
+        "truncated": False,
+    }
+
+    @pytest.mark.asyncio
+    async def test_detail_returns_document(self, adapter):
+        with patch(
+            "tools.skills_tool.read_skill_document",
+            return_value=dict(self._DOCUMENT),
+        ) as reader:
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                resp = await cli.get("/v1/skills/detail?name=github")
+                assert resp.status == 200
+                data = await resp.json()
+        reader.assert_called_once_with("github")
+        assert data["content"].startswith("---")
+        # The on-disk path must never reach a browser.
+        assert "path" not in data
+
+    @pytest.mark.asyncio
+    async def test_detail_requires_name(self, adapter):
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.get("/v1/skills/detail")
+            assert resp.status == 400
+            assert (await resp.json())["error"]["code"] == "invalid_name"
+
+    @pytest.mark.asyncio
+    async def test_detail_rejects_traversal_name(self, adapter):
+        """The lookup guard's ValueError becomes a 400, not a 500."""
+        with patch(
+            "tools.skills_tool.read_skill_document",
+            side_effect=ValueError("Skill name cannot contain '..' path traversal components."),
+        ):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                resp = await cli.get("/v1/skills/detail?name=../escape")
+                assert resp.status == 400
+                assert (await resp.json())["error"]["code"] == "invalid_name"
+
+    @pytest.mark.asyncio
+    async def test_detail_missing_skill_is_404(self, adapter):
+        with patch("tools.skills_tool.read_skill_document", return_value=None):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                resp = await cli.get("/v1/skills/detail?name=nope")
+                assert resp.status == 404
+                assert (await resp.json())["error"]["code"] == "skill_not_found"
+
+    @pytest.mark.asyncio
+    async def test_detail_reports_truncation(self, adapter):
+        document = dict(self._DOCUMENT, content="x" * 16, truncated=True)
+        with patch("tools.skills_tool.read_skill_document", return_value=document):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                data = await (await cli.get("/v1/skills/detail?name=github")).json()
+        assert data["truncated"] is True
+
+
+class TestMcpServersEndpoint:
+    _SERVERS = {
+        "atlassian": {
+            "command": "/Users/someone/.local/bin/uvx",
+            "args": ["mcp-atlassian"],
+            "env": {"JIRA_API_TOKEN": "super-secret-token-value"},
+        },
+        "notion": {"url": "https://mcp.notion.example/v1", "auth": "oauth"},
+        "archived": {"url": "https://old.example/v1", "enabled": False},
+    }
+
+    def _patches(self, *, platform_toolsets):
+        return (
+            patch("hermes_cli.config.load_config", return_value={"mcp_servers": self._SERVERS}),
+            patch("hermes_cli.mcp_config._get_mcp_servers", return_value=self._SERVERS),
+            patch("hermes_cli.tools_config._get_platform_tools", return_value=platform_toolsets),
+            patch("hermes_cli.mcp_config._oauth_tokens_present", return_value=False),
+        )
+
+    @pytest.mark.asyncio
+    async def test_servers_report_platform_visibility_and_mask_secrets(self, adapter):
+        patches = self._patches(platform_toolsets={"atlassian"})
+        with patches[0], patches[1], patches[2], patches[3]:
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                resp = await cli.get("/v1/mcp/servers")
+                assert resp.status == 200
+                data = await resp.json()
+
+        assert data["object"] == "list"
+        assert data["platform"] == "api_server"
+        by_name = {row["name"]: row for row in data["data"]}
+        assert sorted(by_name) == ["archived", "atlassian", "notion"]
+
+        atlassian = by_name["atlassian"]
+        assert atlassian["transport"] == "stdio"
+        # Command name survives, the absolute path does not.
+        assert atlassian["command"] == "uvx"
+        assert "/Users/" not in json.dumps(data)
+        assert atlassian["env"]["JIRA_API_TOKEN"] != "super-secret-token-value"
+        assert "super-secret-token-value" not in json.dumps(data)
+        assert atlassian["available_to_platform"] is True
+
+        # Globally enabled but outside this platform's resolved toolset.
+        assert by_name["notion"]["globally_enabled"] is True
+        assert by_name["notion"]["available_to_platform"] is False
+        # oauth server with no token on disk.
+        assert by_name["notion"]["token_present"] is False
+        # token_present is oauth-only; other auth modes report nothing.
+        assert atlassian["token_present"] is None
+
+        assert by_name["archived"]["globally_enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_servers_handle_enumeration_failure(self, adapter):
+        with patch(
+            "hermes_cli.mcp_config._get_mcp_servers",
+            side_effect=RuntimeError("boom"),
+        ):
+            app = _create_app(adapter)
+            async with TestClient(TestServer(app)) as cli:
+                resp = await cli.get("/v1/mcp/servers")
+                assert resp.status == 500
+                assert "error" in await resp.json()
+
+    @pytest.mark.asyncio
+    async def test_servers_require_auth_when_key_configured(self, auth_adapter):
+        patches = self._patches(platform_toolsets=set())
+        with patches[0], patches[1], patches[2], patches[3]:
+            app = _create_app(auth_adapter)
+            async with TestClient(TestServer(app)) as cli:
+                assert (await cli.get("/v1/mcp/servers")).status == 401
+                authed = await cli.get(
+                    "/v1/mcp/servers",
                     headers={"Authorization": "Bearer sk-secret"},
                 )
                 assert authed.status == 200

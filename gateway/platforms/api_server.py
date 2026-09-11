@@ -687,6 +687,22 @@ def _openai_error(message: str, err_type: str = "invalid_request_error", param: 
     }
 
 
+def _active_profile_name() -> str:
+    """Name of the profile this request reads config and skills from.
+
+    "default" for ``~/.hermes``, the profile name under
+    ``~/.hermes/profiles/<name>``, "custom" for anything else. Falls back to
+    "unknown" rather than failing the response over profile resolution.
+    """
+    try:
+        from hermes_cli.profiles import get_active_profile_name
+
+        return get_active_profile_name()
+    except Exception:
+        logger.debug("Failed to resolve the active profile name", exc_info=True)
+        return "unknown"
+
+
 _api_agent_request_reservation: ContextVar[Optional[dict[str, bool]]] = ContextVar(
     "api_agent_request_reservation", default=None
 )
@@ -1676,7 +1692,9 @@ class APIServerAdapter(BasePlatformAdapter):
             ("GET", "/v1/models", self._handle_models),
             ("GET", "/v1/capabilities", self._handle_capabilities),
             ("GET", "/v1/skills", self._handle_skills),
+            ("GET", "/v1/skills/detail", self._handle_skill_detail),
             ("GET", "/v1/toolsets", self._handle_toolsets),
+            ("GET", "/v1/mcp/servers", self._handle_mcp_servers),
             ("GET", "/api/sessions", self._handle_list_sessions),
             ("POST", "/api/sessions", self._handle_create_session),
             ("GET", "/api/sessions/{session_id}", self._handle_get_session),
@@ -2203,6 +2221,8 @@ class APIServerAdapter(BasePlatformAdapter):
             "object": "hermes.api_server.capabilities",
             "platform": "hermes-agent",
             "model": self._model_name,
+            # Which profile's skills/MCP/config the capability endpoints read.
+            "profile": _active_profile_name(),
             "auth": {
                 "type": "bearer",
                 "required": bool(self._api_key),
@@ -2255,7 +2275,9 @@ class APIServerAdapter(BasePlatformAdapter):
                 "run_approval": {"method": "POST", "path": "/v1/runs/{run_id}/approval"},
                 "run_stop": {"method": "POST", "path": "/v1/runs/{run_id}/stop"},
                 "skills": {"method": "GET", "path": "/v1/skills"},
+                "skill_detail": {"method": "GET", "path": "/v1/skills/detail"},
                 "toolsets": {"method": "GET", "path": "/v1/toolsets"},
+                "mcp_servers": {"method": "GET", "path": "/v1/mcp/servers"},
                 "sessions": {"method": "GET", "path": "/api/sessions"},
                 "session_create": {"method": "POST", "path": "/api/sessions"},
                 "session": {"method": "GET", "path": "/api/sessions/{session_id}"},
@@ -2276,17 +2298,34 @@ class APIServerAdapter(BasePlatformAdapter):
         the model. Mirrors what the gateway/CLI surfaces through
         ``/skills list``, but as a deterministic JSON payload.
 
-        Returns the same skill metadata (name, description, category) the
-        skills hub uses internally. Disabled skills are excluded so the
-        listing matches what the agent actually loads.
+        Each entry carries the skill metadata the skills hub uses internally
+        (name, description, category) plus what a management surface needs:
+        ``version``, ``tags``, ``provenance``, ``enabled``, ``readiness`` and
+        ``missing_env`` — the NAMES of unset required env vars, never values.
+
+        Disabled skills are excluded by default so the listing matches what
+        the agent actually loads; ``?include_disabled=1`` returns them too,
+        flagged ``enabled: false``.
         """
         auth_err = self._check_auth(request)
         if auth_err:
             return auth_err
 
+        include_disabled = _coerce_request_bool(
+            request.query.get("include_disabled"), default=False
+        )
         try:
-            from tools.skills_tool import _find_all_skills, _sort_skills
-            skills = _sort_skills(_find_all_skills(skip_disabled=False))
+            from tools.skills_tool import _sort_skills, list_skills_detailed
+            skills = _sort_skills(
+                list_skills_detailed(
+                    include_disabled=include_disabled,
+                    # Pass the platform explicitly: get_disabled_skill_names()
+                    # otherwise infers it from HERMES_PLATFORM /
+                    # HERMES_SESSION_PLATFORM, neither of which describes an
+                    # inbound HTTP request.
+                    platform="api_server",
+                )
+            )
         except Exception:
             logger.exception("GET /v1/skills failed")
             return web.json_response(
@@ -2297,6 +2336,129 @@ class APIServerAdapter(BasePlatformAdapter):
         return web.json_response({
             "object": "list",
             "data": skills,
+        })
+
+    async def _handle_skill_detail(self, request: "web.Request") -> "web.Response":
+        """GET /v1/skills/detail?name=<skill> — one skill's SKILL.md body.
+
+        The listing deliberately omits skill bodies: dozens of skills at tens
+        of KB of markdown each is a multi-megabyte response no client reads in
+        full, so a client fetches only the one it is displaying.
+
+        Resolution is by frontmatter name (what the listing exposes, and what
+        may differ from the directory name). The response never includes the
+        on-disk path — a browser has no use for it and it would leak the
+        profile's home layout.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        name = request.query.get("name", "").strip()
+        if not name:
+            return web.json_response(
+                _openai_error(
+                    "Query parameter 'name' is required", param="name", code="invalid_name"
+                ),
+                status=400,
+            )
+
+        try:
+            from tools.skills_tool import read_skill_document
+            document = read_skill_document(name)
+        except ValueError as exc:
+            # Traversal-shaped name (absolute path or '..'), rejected before
+            # any filesystem access.
+            return web.json_response(
+                _openai_error(str(exc), param="name", code="invalid_name"),
+                status=400,
+            )
+        except Exception:
+            logger.exception("GET /v1/skills/detail failed for %r", name)
+            return web.json_response(
+                _openai_error("Failed to read skill", err_type="server_error"),
+                status=500,
+            )
+
+        if document is None:
+            return web.json_response(
+                _openai_error(f"Skill not found: {name}", code="skill_not_found"),
+                status=404,
+            )
+
+        return web.json_response(document)
+
+    async def _handle_mcp_servers(self, request: "web.Request") -> "web.Response":
+        """GET /v1/mcp/servers — MCP servers configured for the active profile.
+
+        The source is the profile's ``config.yaml`` ``mcp_servers`` map — the
+        same one the agent connects through at runtime, and the only store
+        there is. Secrets are masked by the shared
+        ``mcp_config.mcp_server_summary``.
+
+        Beyond that shared shape, each entry reports:
+
+        ``globally_enabled``       the server's own ``enabled`` flag.
+        ``available_to_platform``  whether THIS platform's resolved toolset
+            actually contains the server. A globally enabled server can still
+            be invisible to api_server (an explicit per-platform allowlist, or
+            the ``no_mcp`` sentinel), and ``enabled`` alone would misreport
+            that as usable.
+        ``token_present``          for ``auth: oauth`` servers only, whether a
+            token is on disk; None for every other auth mode.
+
+        Strictly read-only: no connection probe. Probing spawns the stdio
+        command or dials the endpoint, which is a side effect, not a read.
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        try:
+            from hermes_cli.config import load_config
+            from hermes_cli.mcp_config import (
+                _get_mcp_servers,
+                _oauth_tokens_present,
+                mcp_server_summary,
+            )
+            from hermes_cli.tools_config import (
+                _get_platform_tools,
+                enabled_mcp_server_names,
+            )
+
+            config = load_config()
+            servers = _get_mcp_servers(config)
+            globally_enabled = enabled_mcp_server_names(config)
+            platform_toolsets = _get_platform_tools(config, "api_server")
+
+            data: List[Dict[str, Any]] = []
+            for name, cfg in sorted(servers.items()):
+                summary = mcp_server_summary(name, cfg)
+                # Keep the command NAME, drop its absolute path: a client only
+                # needs to know what runs, and the full path would hand every
+                # logged-in web user the operator's home layout. (The dashboard
+                # keeps the full value — it edits the config and is owner-only.)
+                command = summary.get("command")
+                if command:
+                    trimmed = str(command).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+                    summary["command"] = trimmed or str(command)
+                summary["globally_enabled"] = name in globally_enabled
+                summary["available_to_platform"] = name in platform_toolsets
+                summary["token_present"] = (
+                    _oauth_tokens_present(name) if cfg.get("auth") == "oauth" else None
+                )
+                data.append(summary)
+        except Exception:
+            logger.exception("GET /v1/mcp/servers failed")
+            return web.json_response(
+                _openai_error("Failed to enumerate MCP servers", err_type="server_error"),
+                status=500,
+            )
+
+        return web.json_response({
+            "object": "list",
+            "platform": "api_server",
+            "data": data,
         })
 
     async def _handle_toolsets(self, request: "web.Request") -> "web.Response":

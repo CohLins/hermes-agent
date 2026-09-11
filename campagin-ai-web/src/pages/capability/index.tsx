@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { App, Button, Input, Modal, Select, Tabs } from "antd";
-import { listMcps, listSkills } from "@/api/capability";
+import { App, Button, Input, Modal, Select, Tabs, Tag } from "antd";
+import { getCapabilities } from "@/api/agent";
+import { getSkillDetail, listMcpServers, listSkills } from "@/api/capability";
 import LoadState from "@/components/LoadState";
 import Markdown from "@/components/Markdown";
 import PageHead from "@/components/PageHead";
@@ -8,10 +9,18 @@ import StatusPill from "@/components/StatusPill";
 import { toneOfCapabilityStatus } from "@/components/statusTone";
 import EmptyBlock from "@/components/EmptyBlock";
 import { useAsync } from "@/hooks/useAsync";
-import type { McpServer, Skill } from "@/types";
+import type { McpServer, Skill } from "@/types/capability";
+import {
+  CAPABILITY_STATUSES,
+  mcpStatus,
+  mcpStatusReason,
+  skillStatus,
+  skillStatusReason,
+  type CapabilityStatus,
+} from "./status";
 
 type TabKey = "skill" | "mcp";
-type StatusFilter = "all" | "enabled" | "pending";
+type StatusFilter = "all" | CapabilityStatus;
 
 export default function CapabilityPage() {
   const { message } = App.useApp();
@@ -22,15 +31,24 @@ export default function CapabilityPage() {
   const [activeSkill, setActiveSkill] = useState<Skill>();
   const [activeMcp, setActiveMcp] = useState<McpServer>();
 
-  const skillState = useAsync(listSkills, []);
-  const mcpState = useAsync(listMcps, []);
+  // include_disabled=true：管理页要看到全貌，包括被关掉的。
+  const skillState = useAsync(() => listSkills(true), []);
+  const mcpState = useAsync(listMcpServers, []);
+  // 清单是 profile 级的，标出来才解释得清「为什么是这个数量」。
+  const caps = useAsync(getCapabilities, []);
 
   const filteredSkills = useMemo(
-    () => filterList(skillState.data ?? [], keyword, status, (x) => x.status),
+    () =>
+      filterList(skillState.data ?? [], keyword, status, skillStatus, (s) =>
+        [s.name, s.description, s.category ?? "", ...s.tags].join(" "),
+      ),
     [skillState.data, keyword, status],
   );
   const filteredMcps = useMemo(
-    () => filterList(mcpState.data ?? [], keyword, status, (x) => x.status),
+    () =>
+      filterList(mcpState.data ?? [], keyword, status, mcpStatus, (s) =>
+        [s.name, s.transport, s.url ?? "", s.command ?? ""].join(" "),
+      ),
     [mcpState.data, keyword, status],
   );
 
@@ -42,7 +60,7 @@ export default function CapabilityPage() {
   const refresh = () => {
     skillState.reload();
     mcpState.reload();
-    message.success("列表已刷新，仍为本地模拟数据");
+    message.success("已重新读取当前 profile 的能力配置");
   };
 
   return (
@@ -50,7 +68,11 @@ export default function CapabilityPage() {
       <PageHead
         eyebrow="CAPABILITIES"
         title="能力管理"
-        desc="在同一页面切换 Skill 与 MCP，查看能力说明和配置状态。"
+        desc={
+          caps.data?.profile
+            ? `profile「${caps.data.profile}」实际加载的 Skill 与 MCP，与该 profile 的飞书助手共享同一份配置。`
+            : "agent 当前 profile 实际加载的 Skill 与 MCP，与飞书助手共享同一份配置。"
+        }
         extra={<Button onClick={refresh}>刷新列表</Button>}
       />
 
@@ -66,11 +88,11 @@ export default function CapabilityPage() {
       <div className="toolbar">
         <Input
           className="toolbar-search"
-          placeholder="搜索名称或描述"
+          placeholder={tab === "skill" ? "搜索名称、说明、分类或标签" : "搜索名称、传输方式或命令"}
           allowClear
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          aria-label="搜索名称或描述"
+          aria-label="搜索能力"
         />
         <Select<StatusFilter>
           value={status}
@@ -78,8 +100,7 @@ export default function CapabilityPage() {
           style={{ width: 150 }}
           options={[
             { value: "all", label: "全部状态" },
-            { value: "enabled", label: "已启用" },
-            { value: "pending", label: "待配置" },
+            ...CAPABILITY_STATUSES.map((s) => ({ value: s, label: s })),
           ]}
           aria-label="状态筛选"
         />
@@ -97,20 +118,29 @@ export default function CapabilityPage() {
             <div className="cards" data-od-id="skill-cards">
               {filteredSkills.map((item) => (
                 <button
-                  key={item.id}
+                  key={item.name}
                   type="button"
                   className="card"
-                  data-od-id={`skill-card-${item.id}`}
+                  data-od-id={`skill-card-${item.name}`}
                   onClick={() => setActiveSkill(item)}
                 >
                   <div className="card-top">
                     <h3>{item.name}</h3>
-                    <StatusPill tone={toneOfCapabilityStatus(item.status)}>{item.status}</StatusPill>
+                    <StatusPill tone={toneOfCapabilityStatus(skillStatus(item))}>
+                      {skillStatus(item)}
+                    </StatusPill>
                   </div>
-                  <p className="card-desc">{item.description}</p>
+                  <p className="card-desc">{item.description || "（无说明）"}</p>
                   <div className="meta-row">
-                    <span className="num">{item.version}</span>
-                    <span>{item.scene}</span>
+                    {/* 版本位语义固定：frontmatter 没写 version 就明说没写，
+                        不要拿别的信息来顶这一格（那会让同一位置一会儿是版本
+                        一会儿是来源）。 */}
+                    <span className="num">
+                      {item.version ? `v${stripLeadingV(item.version)}` : "未标版本"}
+                    </span>
+                    <span>
+                      {provenanceLabel(item)} · {item.category ?? "未分类"}
+                    </span>
                   </div>
                 </button>
               ))}
@@ -121,28 +151,30 @@ export default function CapabilityPage() {
         <LoadState loading={mcpState.loading} error={mcpState.error} onRetry={mcpState.reload}>
           {filteredMcps.length === 0 ? (
             <EmptyBlock
-              title="没有匹配的能力"
-              desc="请调整关键词或清除筛选后重试。"
+              title="没有配置 MCP"
+              desc="当前 profile 的 config.yaml 里没有匹配的 mcp_servers 条目。"
               action={<Button onClick={clearFilters}>清除筛选</Button>}
             />
           ) : (
             <div className="cards" data-od-id="mcp-cards">
               {filteredMcps.map((item) => (
                 <button
-                  key={item.id}
+                  key={item.name}
                   type="button"
                   className="card"
-                  data-od-id={`mcp-card-${item.id}`}
+                  data-od-id={`mcp-card-${item.name}`}
                   onClick={() => setActiveMcp(item)}
                 >
                   <div className="card-top">
                     <h3>{item.name}</h3>
-                    <StatusPill tone={toneOfCapabilityStatus(item.status)}>{item.status}</StatusPill>
+                    <StatusPill tone={toneOfCapabilityStatus(mcpStatus(item))}>
+                      {mcpStatus(item)}
+                    </StatusPill>
                   </div>
-                  <p className="card-desc">{item.description}</p>
+                  <p className="card-desc">{mcpEndpointSummary(item)}</p>
                   <div className="meta-row">
-                    <span>{item.configSummary}</span>
-                    <span>最近检查 {item.lastCheckedAt}</span>
+                    <span className="num">{item.transport}</span>
+                    <span>{item.tools ? `${item.tools.length} 个工具` : "全部工具"}</span>
                   </div>
                 </button>
               ))}
@@ -151,31 +183,7 @@ export default function CapabilityPage() {
         </LoadState>
       )}
 
-      <Modal
-        open={!!activeSkill}
-        onCancel={() => setActiveSkill(undefined)}
-        footer={null}
-        width={760}
-        title={
-          <div>
-            <p className="eyebrow">SKILL DETAIL</p>
-            <h2 style={{ fontSize: 22 }}>{activeSkill?.name}</h2>
-          </div>
-        }
-      >
-        {activeSkill ? (
-          <>
-            <div className="meta-row" style={{ marginBottom: 12 }}>
-              <span className="num">{activeSkill.version}</span>
-              <span>{activeSkill.scene}</span>
-              <StatusPill tone={toneOfCapabilityStatus(activeSkill.status)}>{activeSkill.status}</StatusPill>
-            </div>
-            <div style={{ maxHeight: "60vh", overflow: "auto" }}>
-              <Markdown>{activeSkill.markdown}</Markdown>
-            </div>
-          </>
-        ) : null}
-      </Modal>
+      <SkillDetailModal skill={activeSkill} onClose={() => setActiveSkill(undefined)} />
 
       <Modal
         open={!!activeMcp}
@@ -189,56 +197,154 @@ export default function CapabilityPage() {
           </div>
         }
       >
-        {activeMcp ? (
-          <div style={{ maxHeight: "60vh", overflow: "auto" }}>
-            <div className="detail-block">
-              <h3>功能描述</h3>
-              <p>{activeMcp.description}</p>
-            </div>
-            <div className="detail-block">
-              <h3>连接状态</h3>
-              <p>
-                <StatusPill tone={toneOfCapabilityStatus(activeMcp.status)}>{activeMcp.status}</StatusPill>
-                {"\u3000"}最近检查：{activeMcp.lastCheckedAt}
-              </p>
-              {activeMcp.status === "待配置" ? (
-                <p style={{ marginTop: 8 }}>
-                  该 MCP 尚未完成配置，Agent 暂时无法调用；阶段一不提供真实连接。
-                </p>
-              ) : null}
-            </div>
-            <div className="detail-block">
-              <h3>所需权限</h3>
-              <p>{activeMcp.permissions.join(" · ")}</p>
-            </div>
-            <div className="detail-block">
-              <h3>配置方式</h3>
-              <p>{activeMcp.configSummary}</p>
-              <div className="code" style={{ marginTop: 10 }}>
-                {activeMcp.connection.map((x) => `${x.key} = ${x.value}`).join("\n")}
-              </div>
-              <p className="field-help" style={{ marginTop: 8 }}>
-                敏感值默认遮蔽，阶段一不保存任何密钥。
-              </p>
-            </div>
-          </div>
-        ) : null}
+        {activeMcp ? <McpDetail server={activeMcp} /> : null}
       </Modal>
     </section>
   );
 }
 
-function filterList<T extends { name: string; description: string }>(
+/**
+ * Skill 详情：打开时才拉 SKILL.md。
+ *
+ * 列表端点刻意不带正文 —— 几十个 skill 每个几十 KB markdown，一次拉全是几 MB
+ * 无人阅读的流量。
+ */
+function SkillDetailModal({ skill, onClose }: { skill?: Skill; onClose: () => void }) {
+  const name = skill?.name ?? "";
+  const detail = useAsync(
+    () => (name ? getSkillDetail(name) : Promise.resolve(undefined)),
+    [name],
+  );
+  const reason = skill ? skillStatusReason(skill) : null;
+
+  return (
+    <Modal
+      open={!!skill}
+      onCancel={onClose}
+      footer={null}
+      width={760}
+      destroyOnHidden
+      title={
+        <div>
+          <p className="eyebrow">SKILL DETAIL</p>
+          <h2 style={{ fontSize: 22 }}>{skill?.name}</h2>
+        </div>
+      }
+    >
+      {skill ? (
+        <>
+          <div className="meta-row" style={{ marginBottom: 12 }}>
+            <span className="num">{skill.version ? `v${stripLeadingV(skill.version)}` : "无版本号"}</span>
+            <span>{skill.category ?? "未分类"}</span>
+            <StatusPill tone={toneOfCapabilityStatus(skillStatus(skill))}>
+              {skillStatus(skill)}
+            </StatusPill>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <Tag>{provenanceLabel(skill)}</Tag>
+            {skill.tags.map((tag) => (
+              <Tag key={tag}>{tag}</Tag>
+            ))}
+          </div>
+          {reason ? <p className="field-help" style={{ marginBottom: 12 }}>{reason}</p> : null}
+          <LoadState loading={detail.loading} error={detail.error} onRetry={detail.reload} rows={6}>
+            <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+              <Markdown>{detail.data?.content ?? ""}</Markdown>
+              {detail.data?.truncated ? (
+                <p className="field-help">正文过长已截断，完整内容见该 skill 的 SKILL.md。</p>
+              ) : null}
+            </div>
+          </LoadState>
+        </>
+      ) : null}
+    </Modal>
+  );
+}
+
+function McpDetail({ server }: { server: McpServer }) {
+  const reason = mcpStatusReason(server);
+  const envEntries = Object.entries(server.env);
+
+  return (
+    <div style={{ maxHeight: "60vh", overflow: "auto" }}>
+      <div className="detail-block">
+        <h3>连接状态</h3>
+        <p>
+          <StatusPill tone={toneOfCapabilityStatus(mcpStatus(server))}>
+            {mcpStatus(server)}
+          </StatusPill>
+          {"　"}
+          {server.available_to_platform ? "api_server 平台可调用" : "api_server 平台不可调用"}
+        </p>
+        {reason ? <p style={{ marginTop: 8 }}>{reason}</p> : null}
+        <p className="field-help" style={{ marginTop: 8 }}>
+          状态来自配置解析，本页不发起真实连接探测。
+        </p>
+      </div>
+      <div className="detail-block">
+        <h3>接入方式</h3>
+        <p>{mcpEndpointSummary(server)}</p>
+        {server.args.length > 0 ? (
+          <div className="code" style={{ marginTop: 10 }}>
+            {[server.command, ...server.args].join(" ")}
+          </div>
+        ) : null}
+        <p className="field-help" style={{ marginTop: 8 }}>
+          {server.auth ? `鉴权方式：${server.auth}` : "未配置鉴权"}
+          {server.auth === "oauth"
+            ? server.token_present
+              ? " · 本地已有 token"
+              : " · 本地没有 token"
+            : ""}
+        </p>
+      </div>
+      <div className="detail-block">
+        <h3>工具选择</h3>
+        <p>{server.tools ? server.tools.join(" · ") : "未做筛选，该 server 的全部工具都可用。"}</p>
+      </div>
+      <div className="detail-block">
+        <h3>环境变量</h3>
+        {envEntries.length === 0 ? (
+          <p>未配置环境变量。</p>
+        ) : (
+          <div className="code" style={{ marginTop: 4 }}>
+            {envEntries.map(([key, value]) => `${key} = ${value}`).join("\n")}
+          </div>
+        )}
+        <p className="field-help" style={{ marginTop: 8 }}>
+          值已由服务端脱敏，浏览器拿不到明文；命令只显示名称，不含绝对路径。
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function mcpEndpointSummary(server: McpServer): string {
+  if (server.url) return server.url;
+  if (server.command) return `本地命令 ${server.command}`;
+  return "配置不完整：既没有 url 也没有 command";
+}
+
+function provenanceLabel(skill: Skill): string {
+  return skill.provenance === "bundled" ? "内置" : "自定义";
+}
+
+/** frontmatter 里 version 有写 "2.2.0" 也有写 "v2.2.0"，统一由渲染处补前缀。 */
+function stripLeadingV(version: string): string {
+  return version.startsWith("v") || version.startsWith("V") ? version.slice(1) : version;
+}
+
+function filterList<T>(
   list: T[],
   keyword: string,
   status: StatusFilter,
-  statusOf: (item: T) => string,
+  statusOf: (item: T) => CapabilityStatus,
+  searchTextOf: (item: T) => string,
 ): T[] {
   const q = keyword.trim().toLowerCase();
   return list.filter((item) => {
-    const matchKeyword = !q || `${item.name}${item.description}`.toLowerCase().includes(q);
-    const matchStatus =
-      status === "all" || (status === "enabled" ? statusOf(item) === "已启用" : statusOf(item) === "待配置");
+    const matchKeyword = !q || searchTextOf(item).toLowerCase().includes(q);
+    const matchStatus = status === "all" || statusOf(item) === status;
     return matchKeyword && matchStatus;
   });
 }
